@@ -1,0 +1,6 @@
+{
+  "name": "Desktop MCP Ingestor",
+  "description": "A local desktop application that ingests folders, converts each into a single-page .txt summary (file tree + metadata), and allows AI chat about the ingested content.",
+  "requestFramePermissions": [],
+  "prompt": ""
+}

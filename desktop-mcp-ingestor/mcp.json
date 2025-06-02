@@ -1,0 +1,61 @@
+
+{
+  "mcpServers": {
+    "RustFileSystemTool": {
+      "command": "cargo",
+      "args": [
+        "run",
+        "--manifest-path",
+        "D:/Coding/AiChemistCodex/AiChemistForge/ToolRack/Rust/Cargo.toml",
+        "--",
+        "--allow-write"
+      ],
+      "cwd": "D:/Coding/AiChemistCodex/AiChemistForge/ToolRack/Rust/",
+      "env": {
+        "RUST_LOG": "debug"
+      },
+      "description": "A tool to interact with the Rust file system. Can list directories, read files, write files etc. Specify action and path via arguments.",
+      "parameters": {
+        "action": {
+          "type": "string",
+          "description": "The file system action to perform (e.g., 'list_directory', 'read_file', 'write_file', 'create_directory').",
+          "required": true
+        },
+        "path": {
+          "type": "string",
+          "description": "The primary file or directory path for the action.",
+          "required": true
+        },
+        "content": {
+          "type": "string",
+          "description": "Content to write for 'write_file' action.",
+          "required": false
+        },
+        "destination_path": {
+          "type": "string",
+          "description": "Destination path for actions like 'move_file' or 'copy_file'.",
+          "required": false
+        }
+      }
+    },
+    "ImageConverter": {
+        "command": "magick",
+        "args": [],
+        "description": "Converts images between formats or applies transformations. E.g., convert PNG to JPG, resize image.",
+        "parameters": {
+            "input_file": { "type": "string", "description": "Path to the input image file.", "required": true },
+            "output_file": { "type": "string", "description": "Path for the converted/transformed output image file.", "required": true },
+            "format": { "type": "string", "description": "Desired output format (e.g., 'jpg', 'webp')."},
+            "resize": { "type": "string", "description": "Resize dimensions (e.g., '100x100', '50%')."}
+        }
+    },
+    "SimpleEcho": {
+        "command": "echo",
+        "args": ["Default message"],
+        "description": "A simple tool that echoes a message. The message can be overridden by an argument.",
+        "parameters": {
+            "message_to_echo": { "type": "string", "description": "The message that should be echoed by the tool.", "required": false }
+        }
+    }
+  }
+}

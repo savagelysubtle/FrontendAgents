@@ -1,0 +1,221 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>AI Agent Lab</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link rel="manifest" href="/manifest.json" />
+    <meta name="theme-color" content="#10b981" />
+    <link rel="apple-touch-icon" href="/icons/icon-192x192.png">
+    <style>
+      :root {
+        /* Base Color Palette (keep current colors) */
+        --color-white: #ffffff;
+        --color-black: #000000;
+        --color-gray-50: #f9fafb;
+        --color-gray-100: #f3f4f6;
+        --color-gray-200: #e5e7eb;
+        --color-gray-300: #d1d5db;
+        --color-gray-400: #9ca3af;
+        --color-gray-500: #6b7280;
+        --color-gray-600: #4b5563;
+        --color-gray-700: #374151;
+        --color-gray-800: #1f2937;
+        --color-gray-900: #111827;
+
+        --color-zinc-50: #fafafa;
+        --color-zinc-100: #f4f4f5;
+        --color-zinc-200: #e4e4e7;
+        --color-zinc-300: #d4d4d8;
+        --color-zinc-400: #a1a1aa;
+        --color-zinc-500: #71717a;
+        --color-zinc-600: #52525b;
+        --color-zinc-700: #3f3f46;
+        --color-zinc-800: #27272a;
+        --color-zinc-900: #18181b;
+        --color-zinc-950: #09090b;
+        
+        --color-green-100: #dcfce7;
+        --color-green-200: #bbf7d0; 
+        --color-green-300: #86efac; 
+        --color-green-400: #4ade80;
+        --color-green-500: #22c55e;
+        --color-green-600: #16a34a;
+        --color-green-700: #15803d;
+        --color-green-900: #14532d; 
+        
+        --color-red-100: #fee2e2;
+        --color-red-400: #f87171;
+        --color-red-500: #ef4444;
+        --color-red-600: #dc2626;
+        --color-red-700: #b91c1c;
+
+
+        /* Light Theme Semantic Variables */
+        --page-background: var(--color-gray-100);
+        --text-primary: var(--color-gray-900);
+        --text-secondary: var(--color-gray-600);
+        --text-subtle: var(--color-gray-500);
+
+        --card-background: var(--color-white);
+        --modal-background: var(--color-white);
+        
+        --border-primary: var(--color-gray-200);
+        --border-secondary: var(--color-gray-300);
+
+        --input-background: var(--color-white);
+        --input-border: var(--color-gray-300);
+        --input-text: var(--color-gray-900);
+        --input-focus-ring: var(--color-green-500);
+
+        --accent-bg: var(--color-green-600);
+        --accent-bg-hover: var(--color-green-700);
+        --accent-text-on-bg: var(--color-white);
+        --accent-text: var(--color-green-600);
+        --accent-text-hover-bg: var(--color-green-100);
+        --accent-soft-bg: var(--color-green-100);
+        --accent-soft-text: var(--color-green-600);
+        
+        --button-secondary-bg: var(--color-gray-200);
+        --button-secondary-text: var(--color-gray-800);
+        --button-secondary-hover-bg: var(--color-gray-300);
+        --button-ghost-neutral-hover-bg: var(--color-gray-200);
+        
+        --danger-bg: var(--color-red-600);
+        --danger-text-on-bg: var(--color-white);
+        --danger-bg-hover: var(--color-red-700);
+        --danger-text: var(--color-red-600);
+        --danger-text-hover-bg: var(--color-red-100);
+
+        --scrollbar-thumb: var(--color-zinc-400);
+        --scrollbar-thumb-hover: var(--color-zinc-500);
+        --scrollbar-track: transparent;
+
+        --chat-area-background: var(--color-gray-50);
+        --panel-background-alt: var(--color-gray-100); /* Used for ChatToolsPane */
+        --panel-text-primary: var(--color-gray-700); /* Text on panel-background-alt */
+        --button-ghost-alt-hover-bg: var(--color-gray-200); /* Hover for buttons on panel-background-alt */
+        
+        --list-item-background: var(--color-gray-50);
+      }
+
+      html.dark {
+        /* Dark Theme Semantic Variables */
+        --page-background: var(--color-zinc-950);
+        --text-primary: var(--color-zinc-50);
+        --text-secondary: var(--color-zinc-300);
+        --text-subtle: var(--color-zinc-400);
+
+        --card-background: var(--color-zinc-900);
+        --modal-background: var(--color-zinc-900);
+
+        --border-primary: var(--color-zinc-800);
+        --border-secondary: var(--color-zinc-700);
+
+        --input-background: var(--color-zinc-800);
+        --input-border: var(--color-zinc-700);
+        --input-text: var(--color-zinc-50);
+        --input-focus-ring: var(--color-green-400);
+        
+        --accent-bg: var(--color-green-500); 
+        --accent-bg-hover: var(--color-green-600);
+        --accent-text-on-bg: var(--color-white); /* Ensuring high contrast on accent bg */
+        --accent-text: var(--color-green-400);
+        --accent-text-hover-bg: var(--color-zinc-800); /* Darker bg for hover on light text */
+        --accent-soft-bg: var(--color-green-900); 
+        --accent-soft-text: var(--color-green-200);
+
+        --button-secondary-bg: var(--color-zinc-700);
+        --button-secondary-text: var(--color-zinc-100);
+        --button-secondary-hover-bg: var(--color-zinc-600);
+        --button-ghost-neutral-hover-bg: var(--color-zinc-800);
+        
+        --danger-bg: var(--color-red-500);
+        --danger-text-on-bg: var(--color-white);
+        --danger-bg-hover: var(--color-red-600);
+        --danger-text: var(--color-red-400);
+        --danger-text-hover-bg: var(--color-red-700); /* Check this: text-hover-bg with dark text */
+
+        --scrollbar-thumb: var(--color-zinc-600);
+        --scrollbar-thumb-hover: var(--color-zinc-500);
+
+        --chat-area-background: rgba(39, 39, 42, 0.5); /* zinc-800 (#27272a) at 50% opacity */
+        --panel-background-alt: var(--color-zinc-800); /* Used for ChatToolsPane */
+        --panel-text-primary: var(--color-zinc-200); /* Text on panel-background-alt */
+        --button-ghost-alt-hover-bg: var(--color-zinc-700); /* Hover for buttons on panel-background-alt */
+
+        --list-item-background: var(--color-zinc-800);
+      }
+
+      body {
+        font-family: 'Inter', sans-serif;
+        background-color: var(--page-background);
+        color: var(--text-primary);
+        transition: background-color 0.3s ease, color 0.3s ease;
+      }
+      
+      /* Scrollbar styling using CSS variables */
+      ::-webkit-scrollbar {
+        width: 8px;
+        height: 8px;
+      }
+      ::-webkit-scrollbar-track {
+        background: var(--scrollbar-track);
+      }
+      ::-webkit-scrollbar-thumb {
+        background-color: var(--scrollbar-thumb);
+        border-radius: 4px;
+      }
+      ::-webkit-scrollbar-thumb:hover {
+        background-color: var(--scrollbar-thumb-hover);
+      }
+    </style>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+  <script type="importmap">
+{
+  "imports": {
+    "react": "https://esm.sh/react@^19.1.0",
+    "react-dom/": "https://esm.sh/react-dom@^19.1.0/",
+    "react-router-dom": "https://esm.sh/react-router-dom@^7.6.1",
+    "react/": "https://esm.sh/react@^19.1.0/",
+    "@google/genai": "https://esm.sh/@google/genai@^1.3.0"
+  }
+}
+</script>
+<link rel="stylesheet" href="/index.css">
+</head>
+  <body class="transition-colors duration-300"> 
+    <div id="root"></div>
+    <script type="module" src="/index.tsx"></script>
+    <script>
+      if ('serviceWorker' in navigator) {
+        window.addEventListener('load', () => {
+          const registerServiceWorker = () => {
+            // Construct an absolute URL for the service worker
+            const swUrl = new URL('./sw.js', window.location.origin).toString();
+            navigator.serviceWorker.register(swUrl)
+              .then(registration => {
+                console.log('ServiceWorker registration successful with scope: ', registration.scope);
+              })
+              .catch(error => {
+                console.log('ServiceWorker registration failed: ', error);
+              });
+          };
+
+          if (document.readyState === 'complete') {
+            // Defer to next tick even if already complete
+            setTimeout(registerServiceWorker, 0);
+          } else {
+            // Defer registration until the document is truly complete and stable, then next tick
+            requestAnimationFrame(() => {
+              setTimeout(registerServiceWorker, 0);
+            });
+          }
+        });
+      }
+    </script>
+  </body>
+</html>
