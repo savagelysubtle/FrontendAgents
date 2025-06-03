@@ -1,5 +1,6 @@
 {
   "name": "AI Legal Evidence Organizer",
   "description": "A desktop application for legal self-representatives, advocates, and lawyers to organize, tag, and analyze legal evidence using AI. All data remains local, with file operations managed by a simulated MCP server.",
-  "requestFramePermissions": []
+  "requestFramePermissions": [],
+  "prompt": ""
 }

@@ -1,0 +1,88 @@
+---
+description:
+globs:
+alwaysApply: true
+---
+<?xml version="1.0" encoding="UTF-8"?>
+<frontend_agents_workspace_context>
+    <static_overview>
+        <description>
+            This monorepo, FrontendAgents, consolidates three distinct frontend projects, each with its own focus but all leveraging modern web technologies and AI integrations. For a comprehensive understanding of the entire monorepo structure and high-level goals, always refer to the main <file_reference path="README.md"/>.
+        </description>
+        <core_projects>
+            <project id="ai_agent_lab">
+                <name>AI Agent Lab</name>
+                <type>Progressive Web App (PWA)</type>
+                <purpose>A Progressive Web App (PWA) for managing AI agents and Model Context Protocol (MCP) tools.</purpose>
+                <key_documentation>
+                    <file_reference path="ai-agent-lab/README.md"/>
+                </key_documentation>
+            </project>
+            <project id="desktop_mcp_ingestor">
+                <name>Desktop MCP Ingestor</name>
+                <type>Local desktop application</type>
+                <purpose>A local desktop application for ingesting folder contents and enabling AI chat about them via a backend AG-UI agent.</purpose>
+                <key_documentation>
+                    <file_reference path="desktop-mcp-ingestor/README.md"/>
+                </key_documentation>
+            </project>
+            <project id="ai_legal_evidence_organizer">
+                <name>AI Legal Evidence Organizer</name>
+                <type>Desktop application</type>
+                <purpose>A desktop application for legal evidence management and AI-powered analysis, designed to interact with a conceptual local MCP server.</purpose>
+                <key_documentation>
+                    <file_reference path="ai-legal-evidence-organizer/README.md"/>
+                </key_documentation>
+            </project>
+        </core_projects>
+        <guidance>
+            Before working on any specific project, consult its respective README for detailed architecture, setup, and technology stack information.
+        </guidance>
+    </static_overview>
+
+    <context_management_workflow>
+        <title>Context Management Workflow</title>
+        <workspace_level_context>
+            <source_markdown_file>
+                <file_reference path=".cursor/FrontendAgents.md"/>
+                <description>This file is the primary Markdown document for ongoing workspace-wide updates, refactoring notes, and general progress tracking.</description>
+            </source_markdown_file>
+            <context_rule_summary_file>
+                <file_reference path=".cursor/rules/frontendagents.mdc"/>
+                <description>This rule file (frontendagents.mdc) provides an always-on XML-summarized snapshot of the workspace context from .cursor/FrontendAgents.md. It also defines this overall workflow.</description>
+            </context_rule_summary_file>
+        </workspace_level_context>
+        <project_level_context>
+            <description>
+                Each core project has its own dedicated Markdown file for project-specific running updates (e.g., .cursor/ai-agent-lab.md). The corresponding project-specific rule file (e.g., .cursor/rules/01_ai_agent_lab_context.mdc) contains an XML-summarized snapshot of that project's context and is active when working within that project's directory.
+            </description>
+            <example project_id="ai_agent_lab">
+                <source_markdown_file>
+                    <file_reference path=".cursor/ai-agent-lab.md"/>
+                </source_markdown_file>
+                <context_rule_summary_file>
+                    <file_reference path=".cursor/rules/01_ai_agent_lab_context.mdc"/>
+                </context_rule_summary_file>
+            </example>
+        </project_level_context>
+    </context_management_workflow>
+
+    <dynamic_workspace_updates source_file_ref=".cursor/FrontendAgents.md">
+        <title>Current Workspace Running Updates (Snapshot from .cursor/FrontendAgents.md)</title>
+        <project_focus name="AI Agent Lab Refactoring">
+            <phase name="Phase 1: UI/UX Refinements">
+                <step status="Completed">Enhance Theme Toggle Logic</step>
+                <step status="Completed">Improve Chat Message Styling for System Messages</step>
+            </phase>
+            <phase name="Phase 2: Service Layer Enhancements for Agent Communication">
+                <step status="Completed">Refactor mcpClientService.ts for Extensibility</step>
+            </phase>
+            <note_comment>Additional phases and steps will be documented in the source file as work progresses.</note_comment>
+        </project_focus>
+        <important_note>
+            The XML summary in `dynamic_workspace_updates` is a static representation based on the content of <file_reference path=".cursor/FrontendAgents.md"/> at the time this rule was last updated. **Always consult the live <file_reference path=".cursor/FrontendAgents.md"/> file for the most current and comprehensive information.**
+        </important_note>
+    </dynamic_workspace_updates>
+</frontend_agents_workspace_context>
+
+

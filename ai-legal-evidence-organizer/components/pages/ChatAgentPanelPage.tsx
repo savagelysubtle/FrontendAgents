@@ -2,47 +2,56 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { Link } from 'react-router-dom';
 import { useAppContext } from '../../contexts/AppContext';
-import { ChatMessage, EvidenceFile, WcatCase, SavedChatSession } from '../../types';
-import { getChatResponse, resetChatSession, expandWcatSearchQuery } from '../../services/geminiService';
+import { ChatMessage as AppChatMessage, EvidenceFile, WcatCase, SavedChatSession, PolicyEntry, AiTool, GenerateContentResponse } from '../../types'; // Corrected import for ChatMessage
+import { getChatResponseStream, resetChatSession, expandWcatSearchQuery, summarizeEvidenceText } from '../../services/geminiService';
 import { searchWcatDecisions, fetchAndProcessWcatPdf } from '../../services/wcatService';
 import LoadingSpinner from '../ui/LoadingSpinner';
 import { SIMULATED_CONTEXT_WINDOW_TOKENS, SIMULATED_TOKEN_WARNING_THRESHOLD } from '../../constants';
-import ChatContextSidebar from '../ui/ChatContextSidebar'; 
+import ChatContextSidebar from '../ui/ChatContextSidebar';
+import { v4 as uuidv4 } from 'uuid'; // For unique streaming message ID
 
-const UserIcon = () => <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="w-5 h-5"><path d="M10 8a3 3 0 100-6 3 3 0 000 6zM3.465 14.493a1.23 1.23 0 00.41 1.412A9.957 9.957 0 0010 18c2.31 0 4.438-.784 6.131-2.1.43-.333.604-.903.408-1.41a7.002 7.002 0 00-13.074.003z" /></svg>;
-const AiIcon = () => <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="w-5 h-5"><path fillRule="evenodd" d="M8.22 5.222a.75.75 0 011.06 0l1.25 1.25a.75.75 0 010 1.06l-1.25 1.25a.75.75 0 01-1.06 0l-1.25-1.25a.75.75 0 010-1.06l1.25-1.25zM4.47 9.47a.75.75 0 011.06 0l1.25 1.25a.75.75 0 010 1.06l-1.25 1.25a.75.75 0 01-1.06-1.06l1.25-1.25a.75.75 0 010-1.06l-1.25-1.25a.75.75 0 010-1.06zM11.97 9.47a.75.75 0 011.06 0l1.25 1.25a.75.75 0 010 1.06l-1.25 1.25a.75.75 0 01-1.06-1.06l1.25-1.25a.75.75 0 010-1.06l-1.25-1.25a.75.75 0 010-1.06zM10 3a.75.75 0 01.75.75v.5a.75.75 0 01-1.5 0v-.5A.75.75 0 0110 3zM10 15a.75.75 0 01.75.75v.5a.75.75 0 01-1.5 0v-.5A.75.75 0 0110 15zM4.646 4.646a.75.75 0 011.061 0l.5.5a.75.75 0 01-1.06 1.061l-.5-.5a.75.75 0 010-1.061zM13.793 13.793a.75.75 0 011.06 0l.5.5a.75.75 0 01-1.06 1.06l-.5-.5a.75.75 0 010-1.06zM3.75 10a.75.75 0 01.75-.75h.5a.75.75 0 010 1.5h-.5a.75.75 0 01-.75-.75zm11.75 0a.75.75 0 01.75-.75h.5a.75.75 0 010 1.5h-.5a.75.75 0 01-.75-.75zM5.707 13.793a.75.75 0 010-1.06l.5-.5a.75.75 0 111.06 1.06l-.5.5a.75.75 0 01-1.06 0zM12.732 5.707a.75.75 0 010-1.06l.5-.5a.75.75 0 011.061 1.06l-.5.5a.75.75 0 01-1.06 0z" clipRule="evenodd" /></svg>;
-const SaveIcon = () => <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-4 h-4 mr-1.5"><path strokeLinecap="round" strokeLinejoin="round" d="M3 16.5v2.25A2.25 2.25 0 005.25 21h13.5A2.25 2.25 0 0021 18.75V16.5M16.5 12L12 16.5m0 0L7.5 12m4.5 4.5V3" /></svg>;
+const UserIcon: React.FC = () => <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="w-5 h-5"><path d="M10 8a3 3 0 100-6 3 3 0 000 6zM3.465 14.493a1.23 1.23 0 00.41 1.412A9.957 9.957 0 0010 18c2.31 0 4.438-.784 6.131-2.1.43-.333.604-.903.408-1.41a7.002 7.002 0 00-13.074.003z" /></svg>;
+const AiIcon: React.FC = () => <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="w-5 h-5"><path fillRule="evenodd" d="M8.22 5.222a.75.75 0 011.06 0l1.25 1.25a.75.75 0 010 1.06l-1.25 1.25a.75.75 0 01-1.06 0l-1.25-1.25a.75.75 0 010-1.06l1.25-1.25zM4.47 9.47a.75.75 0 011.06 0l1.25 1.25a.75.75 0 010 1.06l-1.25 1.25a.75.75 0 01-1.06-1.06l1.25-1.25a.75.75 0 010-1.06l-1.25-1.25a.75.75 0 010-1.06zM11.97 9.47a.75.75 0 011.06 0l1.25 1.25a.75.75 0 010 1.06l-1.25 1.25a.75.75 0 01-1.06-1.06l1.25-1.25a.75.75 0 010-1.06l-1.25-1.25a.75.75 0 010-1.06zM10 3a.75.75 0 01.75.75v.5a.75.75 0 01-1.5 0v-.5A.75.75 0 0110 3zM10 15a.75.75 0 01.75.75v.5a.75.75 0 01-1.5 0v-.5A.75.75 0 0110 15zM4.646 4.646a.75.75 0 011.061 0l.5.5a.75.75 0 01-1.06 1.061l-.5-.5a.75.75 0 010-1.061zM13.793 13.793a.75.75 0 011.06 0l.5.5a.75.75 0 01-1.06 1.06l-.5-.5a.75.75 0 010-1.06zM3.75 10a.75.75 0 01.75-.75h.5a.75.75 0 010 1.5h-.5a.75.75 0 01-.75-.75zm11.75 0a.75.75 0 01.75-.75h.5a.75.75 0 010 1.5h-.5a.75.75 0 01-.75-.75zM5.707 13.793a.75.75 0 010-1.06l.5-.5a.75.75 0 111.06 1.06l-.5.5a.75.75 0 01-1.06 0zM12.732 5.707a.75.75 0 010-1.06l.5-.5a.75.75 0 011.061 1.06l-.5.5a.75.75 0 01-1.06 0z" clipRule="evenodd" /></svg>;
+const SaveIcon: React.FC = () => (
+    <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-4 h-4 mr-1.5">
+        <path strokeLinecap="round" strokeLinejoin="round" d="M3 16.5v2.25A2.25 2.25 0 005.25 21h13.5A2.25 2.25 0 0021 18.75V16.5M16.5 12L12 16.5m0 0L7.5 12m4.5 4.5V3" />
+    </svg>
+);
 
 
 const estimateTokens = (text: string = ''): number => Math.ceil(text.length / 4);
 
 const ChatAgentPanelPage: React.FC = () => {
-  const { 
-    chatHistory, addChatMessage, clearChatHistory, 
-    files, wcatCases,
-    setIsLoading, isLoading, setError, addAuditLogEntry, apiKey,
+  const {
+    chatHistory, addChatMessage: addCompleteChatMessage, clearChatHistory,
+    files, wcatCases, policyManuals, 
+    setIsLoading: setAppIsLoading, isLoading: isAppLoading,
+    setError, addAuditLogEntry, apiKey,
     mcpClient, isMcpClientLoading, updateFile,
-    addWcatCase, getWcatCaseByDecisionNumber, generateAndAssignWcatPatternTags,
-    saveChatSession, loadChatSession: loadSessionFromContext // Renamed to avoid conflict
+    addWcatCase, getWcatCaseByDecisionNumber, generateAndAssignWcatPatternTags, getWcatCaseById,
+    saveChatSession, loadChatSession: loadSessionFromContext,
+    tools, selectedToolIdsForContext, toggleToolContext, // Tool related context
+    selectedFileIdsForContext, toggleFileContext,       // File context
+    selectedWcatCaseIdsForContext, toggleWcatCaseContext // WCAT context
   } = useAppContext();
-  
+
   const [userInput, setUserInput] = useState('');
   const chatEndRef = useRef<HTMLDivElement>(null);
-  const [selectedFileIdsForContext, setSelectedFileIdsForContext] = useState<string[]>([]);
-  const [selectedWcatCaseIdsForContext, setSelectedWcatCaseIdsForContext] = useState<string[]>([]);
+  
   const [currentTotalEstTokens, setCurrentTotalEstTokens] = useState(0);
-  const [isContextSidebarHidden, setIsContextSidebarHidden] = useState(true); 
+  const [isContextSidebarHidden, setIsContextSidebarHidden] = useState(true);
   const [isDraggingOver, setIsDraggingOver] = useState(false);
-
-
+  const [streamingAiMessage, setStreamingAiMessage] = useState<AppChatMessage | null>(null);
+  
   useEffect(() => {
     chatEndRef.current?.scrollIntoView({ behavior: 'smooth' });
-  }, [chatHistory]);
+  }, [chatHistory, streamingAiMessage]);
 
   useEffect(() => {
     let tokens = 0;
     tokens += estimateTokens(userInput);
     chatHistory.forEach(msg => tokens += estimateTokens(msg.text));
+    if (streamingAiMessage) tokens += estimateTokens(streamingAiMessage.text);
     
     files.filter(f => selectedFileIdsForContext.includes(f.id)).forEach(f => {
         tokens += estimateTokens(f.summary) + estimateTokens(f.content);
@@ -50,74 +59,157 @@ const ChatAgentPanelPage: React.FC = () => {
     wcatCases.filter(c => selectedWcatCaseIdsForContext.includes(c.id)).forEach(c => {
         tokens += estimateTokens(c.aiSummary) + estimateTokens(c.rawTextContent);
     });
+    tools.filter(t => selectedToolIdsForContext.includes(t.id)).forEach(t => {
+        tokens += estimateTokens(t.name) + estimateTokens(t.description) + estimateTokens(t.usageExample);
+    });
+
     setCurrentTotalEstTokens(tokens);
-  }, [userInput, chatHistory, files, selectedFileIdsForContext, wcatCases, selectedWcatCaseIdsForContext]);
+  }, [userInput, chatHistory, files, selectedFileIdsForContext, wcatCases, selectedWcatCaseIdsForContext, tools, selectedToolIdsForContext, streamingAiMessage]);
 
   const handleDeepWcatSearchAndIngest = async (originalQuery: string) => {
-    addChatMessage({sender: 'ai', text: `Starting deep WCAT search for: "${originalQuery}"...`});
+    addCompleteChatMessage({sender: 'ai', text: `Starting deep WCAT search for: "${originalQuery}"...`});
     let currentQuery = originalQuery;
     try {
-      addChatMessage({sender: 'ai', text: "Expanding search query with AI..."});
+      addCompleteChatMessage({sender: 'ai', text: "Expanding search query with AI..."});
       currentQuery = await expandWcatSearchQuery(originalQuery);
-      addChatMessage({sender: 'ai', text: `Expanded query: "${currentQuery}". Now searching WCAT (simulated deep search)...`});
+      addCompleteChatMessage({sender: 'ai', text: `Expanded query: "${currentQuery}". Now searching WCAT (simulated deep search)...`});
     } catch (expansionError: any) {
-      addChatMessage({sender: 'ai', text: `Could not expand query: ${expansionError.message}. Proceeding with original query.`});
+      addCompleteChatMessage({sender: 'ai', text: `Could not expand query: ${expansionError.message}. Proceeding with original query.`});
     }
-
     const searchResults = await searchWcatDecisions(currentQuery, undefined, undefined, 'all', true);
     if (searchResults.length === 0) {
-      addChatMessage({sender: 'ai', text: "No WCAT decisions found for your query."});
+      addCompleteChatMessage({sender: 'ai', text: "No WCAT decisions found for your query."});
       return;
     }
-    addChatMessage({sender: 'ai', text: `Found ${searchResults.length} potential WCAT decisions. Starting ingestion and analysis... (This may take some time)`});
-
+    addCompleteChatMessage({sender: 'ai', text: `Found ${searchResults.length} potential WCAT decisions. Starting ingestion and analysis... (This may take some time)`});
     let ingestedCount = 0;
     for (const sr of searchResults) {
       if (getWcatCaseByDecisionNumber(sr.decisionNumber)) {
-        addChatMessage({sender: 'ai', text: `Case ${sr.decisionNumber} already in database. Skipping.`});
+        addCompleteChatMessage({sender: 'ai', text: `Case ${sr.decisionNumber} already in database. Skipping.`});
         continue;
       }
       try {
-        addChatMessage({sender: 'ai', text: `Processing ${sr.decisionNumber}...`});
+        addCompleteChatMessage({sender: 'ai', text: `Processing ${sr.decisionNumber}...`});
         const caseDataPartial = await fetchAndProcessWcatPdf(sr.pdfUrl, sr.decisionNumber, addAuditLogEntry, mcpClient);
         const newCase = await addWcatCase(caseDataPartial as Omit<WcatCase, 'id' | 'ingestedAt' | 'tags'>);
         await generateAndAssignWcatPatternTags(newCase.id);
-        const finalCase = useAppContext().getWcatCaseById(newCase.id); 
+        const finalCase = getWcatCaseById(newCase.id);
         const patternNames = finalCase?.tags.filter(t => t.scope === 'wcat_pattern').map(t => t.name).join(', ') || 'None';
-        addChatMessage({sender: 'ai', text: `Successfully ingested ${sr.decisionNumber}. MCP Path: ${newCase.mcpPath || 'N/A'}. Identified patterns: ${patternNames}`});
+        addCompleteChatMessage({sender: 'ai', text: `Successfully ingested ${sr.decisionNumber}. MCP Path: ${newCase.mcpPath || 'N/A'}. Identified patterns: ${patternNames}`});
         ingestedCount++;
       } catch (ingestError: any) {
-        addChatMessage({sender: 'ai', text: `Failed to ingest ${sr.decisionNumber}: ${ingestError.message}`});
+        addCompleteChatMessage({sender: 'ai', text: `Failed to ingest ${sr.decisionNumber}: ${ingestError.message}`});
       }
     }
-    addChatMessage({sender: 'ai', text: `Deep search and ingestion complete. ${ingestedCount} new cases processed.`});
+    addCompleteChatMessage({sender: 'ai', text: `Deep search and ingestion complete. ${ingestedCount} new cases processed.`});
   };
 
   const handleSendMessage = async (e: React.FormEvent) => {
     e.preventDefault();
     const currentInput = userInput.trim();
-    if (currentInput === '' || isLoading) return;
-    if (!apiKey) {
-      setError("Gemini API Key is not set. Please configure it in Settings before using chat.");
-      return;
-    }
-    if (isMcpClientLoading || (mcpClient && !mcpClient.isReady() && selectedFileIdsForContext.length > 0) ) {
-      setError(`MCP Client is not ready to fetch file context. Status: ${isMcpClientLoading ? 'Loading...' : (mcpClient?.getInitializationError() || 'Error')}`);
-      return;
-    }
+    if (currentInput === '' || isAppLoading) return;
 
-    const userMessage = addChatMessage({ sender: 'user', text: currentInput, relatedFileIds: selectedFileIdsForContext, relatedWcatCaseIds: selectedWcatCaseIdsForContext });
+    addCompleteChatMessage({ 
+        sender: 'user', 
+        text: currentInput, 
+        relatedFileIds: selectedFileIdsForContext, 
+        relatedWcatCaseIds: selectedWcatCaseIdsForContext,
+        relatedToolIds: selectedToolIdsForContext 
+    });
     setUserInput('');
-    setIsLoading(true);
+    setAppIsLoading(true);
     setError(null);
-
+    
+    const extractMarkersMatch = currentInput.match(/^\/extract_markers\s+(.+)/i);
+    const lookupPolicyMatch = currentInput.match(/^\/lookup_policy\s+([A-Za-z0-9.-]+)/i);
+    const summarizeWcatMatch = currentInput.match(/^\/summarize_wcat\s+([\w-]+)/i);
     const deepSearchMatch = currentInput.match(/^(?:deep search wcat for|search wcat for|wcat deep search|find wcat cases about)[:\s]*(.+)/i);
+
+    if (!apiKey && (extractMarkersMatch || deepSearchMatch)) {
+        addCompleteChatMessage({ sender: 'ai', text: "Gemini API Key is not set. This command requires AI. Please configure it in Settings." });
+        setAppIsLoading(false);
+        return;
+    }
+     if ((isMcpClientLoading || (mcpClient && !mcpClient.isReady())) && selectedFileIdsForContext.length > 0) {
+         addCompleteChatMessage({ sender: 'ai', text: `MCP Client is not ready to fetch file context. Status: ${isMcpClientLoading ? 'Loading...' : (mcpClient?.getInitializationError() || 'Error')}` });
+         setAppIsLoading(false);
+         return;
+    }
+
+
+    if (extractMarkersMatch) {
+        const docName = extractMarkersMatch[1].trim();
+        const fileToAnalyze = files.find(f => f.name.toLowerCase() === docName.toLowerCase());
+        if (fileToAnalyze) {
+            const textToAnalyze = fileToAnalyze.content || fileToAnalyze.summary || '';
+            if (textToAnalyze) {
+                try {
+                    addAuditLogEntry('COMMAND_EXTRACT_MARKERS', `User requested marker extraction for: ${docName}`);
+                    const markers = await summarizeEvidenceText(textToAnalyze); 
+                    addCompleteChatMessage({ sender: 'ai', text: `Markers for "${fileToAnalyze.name}":\n${markers}` });
+                } catch (err: any) {
+                    addCompleteChatMessage({ sender: 'ai', text: `Error extracting markers for "${docName}": ${err.message}` });
+                }
+            } else {
+                addCompleteChatMessage({ sender: 'ai', text: `No content or summary available for "${docName}" to extract markers.` });
+            }
+        } else {
+            addCompleteChatMessage({ sender: 'ai', text: `Document "${docName}" not found.` });
+        }
+        setAppIsLoading(false);
+        return;
+    }
+
+    if (lookupPolicyMatch) {
+        const policyNum = lookupPolicyMatch[1].trim();
+        addAuditLogEntry('COMMAND_LOOKUP_POLICY', `User requested lookup for policy: ${policyNum}`);
+        let foundEntries: { manualName: string, entry: PolicyEntry }[] = [];
+        policyManuals.forEach(manual => {
+            const entry = manual.policyEntries.find(pe => pe.policyNumber === policyNum);
+            if (entry) {
+                foundEntries.push({ manualName: manual.manualName, entry });
+            }
+        });
+        if (foundEntries.length > 0) {
+            const responseText = foundEntries.map(fe => 
+                `Found in "${fe.manualName}":\nPolicy: ${fe.entry.policyNumber} - ${fe.entry.title || 'Untitled'}\nPage: ${fe.entry.page || 'N/A'}\nSnippet: ${fe.entry.snippet || 'N/A'}`
+            ).join('\n\n---\n\n');
+            addCompleteChatMessage({ sender: 'ai', text: responseText });
+        } else {
+            addCompleteChatMessage({ sender: 'ai', text: `Policy "${policyNum}" not found in any loaded manuals.` });
+        }
+        setAppIsLoading(false);
+        return;
+    }
+
+    if (summarizeWcatMatch) {
+        const decisionNum = summarizeWcatMatch[1].trim();
+        addAuditLogEntry('COMMAND_SUMMARIZE_WCAT', `User requested summary for WCAT case: ${decisionNum}`);
+        const wcase = wcatCases.find(c => c.decisionNumber === decisionNum);
+        if (wcase) {
+            const responseText = `Summary for WCAT Case ${wcase.decisionNumber} (${wcase.year}):\nOutcome: ${wcase.outcomeSummary}\nAI Summary: ${wcase.aiSummary || 'Not available.'}`;
+            addCompleteChatMessage({ sender: 'ai', text: responseText });
+        } else {
+            addCompleteChatMessage({ sender: 'ai', text: `WCAT Case "${decisionNum}" not found.` });
+        }
+        setAppIsLoading(false);
+        return;
+    }
+    
     if (deepSearchMatch && deepSearchMatch[1]) {
         const searchQuery = deepSearchMatch[1].trim();
         await handleDeepWcatSearchAndIngest(searchQuery);
-        setIsLoading(false);
+        setAppIsLoading(false);
         return;
     }
+
+    const placeholderAiMessage: AppChatMessage = {
+      id: uuidv4(),
+      sender: 'ai',
+      text: '',
+      timestamp: new Date().toISOString(),
+    };
+    setStreamingAiMessage(placeholderAiMessage);
 
     try {
       let filesForAiContext: EvidenceFile[] = [];
@@ -142,83 +234,76 @@ const ChatAgentPanelPage: React.FC = () => {
       } else {
         filesForAiContext = files.filter(f => selectedFileIdsForContext.includes(f.id));
       }
-      
       const relevantWcatContextCases = wcatCases.filter(c => selectedWcatCaseIdsForContext.includes(c.id));
-      
-      const aiResponse = await getChatResponse(chatHistory, userMessage.text, filesForAiContext, relevantWcatContextCases);
-      addChatMessage({ sender: 'ai', text: aiResponse.text });
-      if (aiResponse.groundingSources && aiResponse.groundingSources.length > 0) {
-        const sourcesText = aiResponse.groundingSources.map(s => `Source: ${s.title} (${s.uri})`).join('\n');
-        addChatMessage({ sender: 'ai', text: `Grounding sources:\n${sourcesText}` });
+      const relevantTools = tools.filter(t => selectedToolIdsForContext.includes(t.id)); // Get selected tools
+
+      const stream = await getChatResponseStream(currentInput, filesForAiContext, relevantWcatContextCases, relevantTools); // Pass tools
+      let accumulatedText = "";
+      let lastChunkProcessed: GenerateContentResponse | null = null;
+
+      for await (const chunk of stream) {
+        accumulatedText += chunk.text;
+        setStreamingAiMessage(prev => prev ? { ...prev, text: accumulatedText } : null);
+        lastChunkProcessed = chunk;
       }
-      addAuditLogEntry('AI_CHAT_MESSAGE', `User: ${userMessage.text.substring(0,50)}... AI: ${aiResponse.text.substring(0,50)}...`);
+
+      if (accumulatedText) {
+        addCompleteChatMessage({ sender: 'ai', text: accumulatedText });
+      }
+      addAuditLogEntry('AI_CHAT_STREAM_SUCCESS', `User: ${currentInput.substring(0,50)}... AI: ${accumulatedText.substring(0,50)}...`);
+      
+      if (lastChunkProcessed) {
+        const groundingMetadata = lastChunkProcessed.candidates?.[0]?.groundingMetadata;
+        const groundingSources = groundingMetadata?.groundingChunks
+            ?.filter(chunkItem => chunkItem.web && chunkItem.web.uri)
+            .map(chunkItem => ({ uri: chunkItem.web.uri, title: chunkItem.web.title || chunkItem.web.uri })) || [];
+        if (groundingSources.length > 0) {
+            const sourcesText = groundingSources.map(s => `Source: [${s.title || 'Untitled'}](${s.uri})`).join('\n');
+            addCompleteChatMessage({ sender: 'ai', text: `Grounding sources:\n${sourcesText}` });
+        }
+      }
+
     } catch (err: any) {
       console.error("Error sending message:", err);
       const errorMsg = `AI Chat Error: ${err.message}. Try again or check API key/MCP connection.`;
-      addChatMessage({ sender: 'ai', text: errorMsg });
+      addCompleteChatMessage({ sender: 'ai', text: errorMsg });
       setError(errorMsg);
     } finally {
-      setIsLoading(false);
+      setStreamingAiMessage(null);
+      setAppIsLoading(false);
     }
   };
 
   const handleClearChat = () => {
     if (window.confirm("Are you sure you want to clear the chat history and reset AI session? This will also clear selected context items.")) {
-      clearChatHistory(); // This now also calls resetGeminiChatSession()
-      setSelectedFileIdsForContext([]);
-      setSelectedWcatCaseIdsForContext([]);
+      clearChatHistory(); // This now clears all selected context IDs globally
       addAuditLogEntry('AI_CHAT_CLEARED', 'Chat history, AI session, and context items cleared by user.');
     }
   };
 
   const handleSaveCurrentSession = () => {
-    if (chatHistory.length === 0) {
+    if (chatHistory.length === 0 && !streamingAiMessage) {
         setError("Cannot save an empty chat session.");
         return;
     }
     const sessionName = window.prompt("Enter a name for this chat session:", `Chat Session ${new Date().toLocaleString()}`);
     if (sessionName) {
-        saveChatSession(sessionName, chatHistory, selectedFileIdsForContext, selectedWcatCaseIdsForContext);
+        const messagesToSave = streamingAiMessage && streamingAiMessage.text ? [...chatHistory, streamingAiMessage] : chatHistory;
+        saveChatSession(sessionName, messagesToSave, selectedFileIdsForContext, selectedWcatCaseIdsForContext, selectedToolIdsForContext); // Save tool IDs
         alert(`Session "${sessionName}" saved!`);
     }
   };
 
-  // Callback for the sidebar to trigger session loading
   const handleLoadSession = (sessionId: string) => {
-    if (chatHistory.length > 0) {
-        if (!window.confirm("Loading a saved session will clear your current unsaved chat. Continue?")) {
-            return;
-        }
-    }
     const loadedSession = loadSessionFromContext(sessionId);
     if (loadedSession) {
-        setSelectedFileIdsForContext(loadedSession.relatedFileIds || []);
-        setSelectedWcatCaseIdsForContext(loadedSession.relatedWcatCaseIds || []);
-        setIsContextSidebarHidden(true); // Close sidebar after loading
+        setIsContextSidebarHidden(true);
+        setStreamingAiMessage(null);
     } else {
         setError("Failed to load the selected chat session.");
     }
   };
-
-
-  const toggleFileContext = (fileId: string, forceAdd = false) => {
-    setSelectedFileIdsForContext(prev => {
-      if (forceAdd) {
-        return prev.includes(fileId) ? prev : [...prev, fileId];
-      }
-      return prev.includes(fileId) ? prev.filter(id => id !== fileId) : [...prev, fileId];
-    });
-  };
   
-  const toggleWcatCaseContext = (caseId: string, forceAdd = false) => {
-    setSelectedWcatCaseIdsForContext(prev => {
-      if (forceAdd) {
-        return prev.includes(caseId) ? prev : [...prev, caseId];
-      }
-      return prev.includes(caseId) ? prev.filter(id => id !== caseId) : [...prev, caseId];
-    });
-  };
-
   const handleDragOver = (event: React.DragEvent<HTMLDivElement>) => {
     event.preventDefault();
     setIsDraggingOver(true);
@@ -234,15 +319,18 @@ const ChatAgentPanelPage: React.FC = () => {
     try {
       const dataString = event.dataTransfer.getData("application/json");
       if (dataString) {
-        const droppedItem: { id: string; type: 'evidence' | 'wcat' } = JSON.parse(dataString);
+        const droppedItem: { id: string; type: 'evidence' | 'wcat' | 'tool' } = JSON.parse(dataString);
         if (droppedItem.type === 'evidence') {
-          toggleFileContext(droppedItem.id, true); 
+          toggleFileContext(droppedItem.id); 
           addAuditLogEntry('CONTEXT_ITEM_DROPPED', `Evidence file ID ${droppedItem.id} added to context via D&D.`);
         } else if (droppedItem.type === 'wcat') {
-          toggleWcatCaseContext(droppedItem.id, true); 
+          toggleWcatCaseContext(droppedItem.id); 
           addAuditLogEntry('CONTEXT_ITEM_DROPPED', `WCAT case ID ${droppedItem.id} added to context via D&D.`);
+        } else if (droppedItem.type === 'tool') {
+          toggleToolContext(droppedItem.id); 
+          addAuditLogEntry('CONTEXT_ITEM_DROPPED', `Tool ID ${droppedItem.id} added to context via D&D.`);
         }
-        setIsContextSidebarHidden(false); 
+        setIsContextSidebarHidden(false);
       }
     } catch (e) {
       console.error("Error processing drop event:", e);
@@ -250,13 +338,10 @@ const ChatAgentPanelPage: React.FC = () => {
     }
   };
 
-
-  const tokenInfoColor = currentTotalEstTokens > SIMULATED_TOKEN_WARNING_THRESHOLD 
-    ? 'text-red-500' 
+  const tokenInfoColor = currentTotalEstTokens > SIMULATED_TOKEN_WARNING_THRESHOLD
+    ? 'text-red-500'
     : (currentTotalEstTokens > SIMULATED_CONTEXT_WINDOW_TOKENS * 0.5 ? 'text-yellow-500' : 'text-textSecondary');
-
-  const chatAreaHeight = `calc(100vh - var(--header-height, 64px) - 3rem)`; 
-
+  const chatAreaHeight = `calc(100vh - var(--header-height, 64px) - 3rem)`;
 
   return (
     <div className="flex flex-col h-full" style={{ height: chatAreaHeight }}>
@@ -270,18 +355,18 @@ const ChatAgentPanelPage: React.FC = () => {
                         title="Open Context Sidebar"
                         aria-label="Open Context Sidebar"
                     >
-                        Chat Context
+                        Chat Context & Tools
                     </button>
                 )}
-                 <button 
-                    onClick={handleSaveCurrentSession} 
-                    disabled={chatHistory.length === 0}
+                 <button
+                    onClick={handleSaveCurrentSession}
+                    disabled={chatHistory.length === 0 && !streamingAiMessage}
                     className="text-sm text-green-600 hover:text-green-700 dark:hover:text-green-500 px-3 py-1.5 border border-green-600 rounded-md flex items-center disabled:opacity-50 disabled:cursor-not-allowed"
                 >
                     <SaveIcon /> Save Session
                 </button>
-                <button 
-                    onClick={handleClearChat} 
+                <button
+                    onClick={handleClearChat}
                     className="text-sm text-red-500 hover:text-red-700 dark:hover:text-red-400 px-3 py-1.5 border border-red-500 rounded-md"
                 >
                     Clear & Reset Session
@@ -299,9 +384,9 @@ const ChatAgentPanelPage: React.FC = () => {
             </div>
         )}
 
-        <div className="flex flex-grow min-h-0 relative"> 
-            <div className="flex-grow flex flex-col p-6 pr-2 gap-4"> 
-                <div 
+        <div className="flex flex-grow min-h-0 relative">
+            <div className="flex-grow flex flex-col p-6 pr-2 gap-4">
+                <div
                   className={`flex-grow overflow-y-auto bg-surface p-4 rounded-lg shadow border border-border space-y-4 transition-colors ${isDraggingOver ? 'border-primary ring-2 ring-primary' : 'border-border'}`}
                   onDragOver={handleDragOver}
                   onDragLeave={handleDragLeave}
@@ -310,8 +395,8 @@ const ChatAgentPanelPage: React.FC = () => {
                     {chatHistory.map((msg) => (
                     <div key={msg.id} className={`flex ${msg.sender === 'user' ? 'justify-end' : 'justify-start'}`}>
                         <div className={`max-w-xl p-3 rounded-lg shadow ${
-                            msg.sender === 'user' 
-                            ? 'bg-primary text-white' 
+                            msg.sender === 'user'
+                            ? 'bg-primary text-white'
                             : 'bg-background text-textPrimary border border-border'
                         }`}>
                         <div className="flex items-center mb-1">
@@ -325,21 +410,36 @@ const ChatAgentPanelPage: React.FC = () => {
                         {msg.relatedWcatCaseIds && msg.relatedWcatCaseIds.length > 0 && (
                             <p className="text-xs opacity-70 mt-1">Context WCAT: {msg.relatedWcatCaseIds.map(id => wcatCases.find(f=>f.id===id)?.decisionNumber || id).join(', ')}</p>
                         )}
+                        {msg.relatedToolIds && msg.relatedToolIds.length > 0 && (
+                            <p className="text-xs opacity-70 mt-1">Context Tools: {msg.relatedToolIds.map(id => tools.find(t=>t.id===id)?.name || id).join(', ')}</p>
+                        )}
                         <p className="text-xs opacity-70 mt-1 text-right">{new Date(msg.timestamp).toLocaleTimeString()}</p>
                         </div>
                     </div>
                     ))}
-                    {isLoading && chatHistory.length > 0 && 
-                        chatHistory[chatHistory.length-1]?.sender === 'user' &&
+                    {streamingAiMessage && (
+                       <div className="flex justify-start">
+                            <div className={`max-w-xl p-3 rounded-lg shadow bg-background text-textPrimary border border-border`}>
+                                <div className="flex items-center mb-1">
+                                    <AiIcon />
+                                    <span className="font-semibold ml-2 text-sm">AI Agent</span>
+                                </div>
+                                <pre className="whitespace-pre-wrap text-sm">{streamingAiMessage.text}<span className="animate-pulse">▋</span></pre>
+                                <p className="text-xs opacity-70 mt-1 text-right">{new Date(streamingAiMessage.timestamp).toLocaleTimeString()}</p>
+                            </div>
+                        </div>
+                    )}
+                    {isAppLoading && !streamingAiMessage && chatHistory.length > 0 &&
+                        chatHistory[chatHistory.length-1]?.sender === 'user' && (
                     <div className="flex justify-start">
                         <div className="max-w-lg p-3 rounded-lg shadow bg-background text-textPrimary border border-border">
                             <LoadingSpinner size="sm" message="AI is thinking..." />
                         </div>
                     </div>
-                    }
-                    {chatHistory.length === 0 && !isLoading && (
+                    )}
+                    {chatHistory.length === 0 && !streamingAiMessage && !isAppLoading && (
                     <p className="text-center text-textSecondary">
-                        {isDraggingOver ? "Drop item here to add to context" : "No messages yet. Select context from the sidebar and start by asking a question! Try 'Deep search WCAT for [your topic]'."}
+                        {isDraggingOver ? "Drop item here to add to context" : "No messages yet. Select context from the sidebar and start by asking a question! Try '/extract_markers DocumentName', '/lookup_policy PolicyNumber', or '/summarize_wcat DecisionNumber'."}
                     </p>
                     )}
                     <div ref={chatEndRef} />
@@ -358,13 +458,13 @@ const ChatAgentPanelPage: React.FC = () => {
                         type="text"
                         value={userInput}
                         onChange={(e) => setUserInput(e.target.value)}
-                        placeholder="Ask about selected context, or 'deep search WCAT for [topic]'"
+                        placeholder="Ask a question or use a command like /extract_markers <doc_name>"
                         className="flex-grow px-4 py-2 bg-background border border-border rounded-lg shadow-sm focus:outline-none focus:ring-2 focus:ring-primary focus:border-transparent"
-                        disabled={isLoading || !apiKey}
+                        disabled={isAppLoading || !apiKey}
                     />
                     <button
                         type="submit"
-                        disabled={isLoading || userInput.trim() === '' || !apiKey}
+                        disabled={isAppLoading || userInput.trim() === '' || !apiKey}
                         className="bg-primary text-white px-6 py-2 rounded-lg hover:bg-primary-dark transition-colors disabled:opacity-50"
                     >
                         Send
@@ -378,11 +478,14 @@ const ChatAgentPanelPage: React.FC = () => {
                     onToggleCollapse={() => setIsContextSidebarHidden(true)}
                     files={files}
                     wcatCases={wcatCases}
-                    selectedFileIds={selectedFileIdsForContext}
-                    onToggleFileContext={toggleFileContext}
-                    selectedWcatCaseIds={selectedWcatCaseIdsForContext}
-                    onToggleWcatCaseContext={toggleWcatCaseContext}
-                    onLoadSession={handleLoadSession} // Pass callback for loading session
+                    selectedFileIds={selectedFileIdsForContext} 
+                    onToggleFileContext={toggleFileContext} 
+                    selectedWcatCaseIds={selectedWcatCaseIdsForContext} 
+                    onToggleWcatCaseContext={toggleWcatCaseContext} 
+                    onLoadSession={handleLoadSession}
+                    tools={tools} 
+                    selectedToolIds={selectedToolIdsForContext} 
+                    onToggleToolContext={toggleToolContext} 
                 />
             )}
         </div>

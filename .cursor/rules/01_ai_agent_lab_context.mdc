@@ -1,0 +1,36 @@
+---
+description:
+globs: ai-agent-lab/**,ai-agent-lab/**/*
+alwaysApply: false
+---
+<?xml version="1.0" encoding="UTF-8"?>
+<project_context project_id="ai_agent_lab">
+    <static_info>
+        <goal>AI Agent Lab is a Progressive Web App (PWA) for managing, testing, and interacting with AI agents and Model Context Protocol (MCP) tools. It features a Gemini-powered AI assistant.</goal>
+        <key_documentation>
+            <file_reference path="ai-agent-lab/README.md"/>
+            <description>The primary source of truth for this project. Refer to it for detailed architecture, PWA features, tech stack (React 19, TypeScript, Tailwind CSS, Google Gemini API), and setup.</description>
+        </key_documentation>
+        <entry_points>
+            <file_reference path="ai-agent-lab/index.html"/>
+            <file_reference path="ai-agent-lab/src/App.tsx"/>
+        </entry_points>
+        <api_key_note>Requires API_KEY environment variable for Gemini features, as detailed in its README.</api_key_note>
+    </static_info>
+    <dynamic_project_updates>
+        <title>Current AI Agent Lab Project Updates (Snapshot from .cursor/ai-agent-lab.md)</title>
+        <context_source_file>
+            <file_reference path=".cursor/ai-agent-lab.md"/>
+            <description>This file contains detailed running updates and context specifically for the AI Agent Lab project.</description>
+        </context_source_file>
+        <updates_summary source_file_ref=".cursor/ai-agent-lab.md">
+            <!-- Project-specific updates from .cursor/ai-agent-lab.md will be summarized here in XML format when available. -->
+            <no_updates_yet>No specific updates logged in .cursor/ai-agent-lab.md yet.</no_updates_yet>
+        </updates_summary>
+        <important_note>
+            The XML summary in `updates_summary` is a static representation. Always consult the live <file_reference path=".cursor/ai-agent-lab.md"/> file for current project-specific information.
+        </important_note>
+    </dynamic_project_updates>
+</project_context>
+
+

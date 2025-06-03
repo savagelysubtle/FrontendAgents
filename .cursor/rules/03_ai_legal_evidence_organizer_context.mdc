@@ -1,0 +1,40 @@
+---
+description:
+globs: ai-legal-evidence-organizer/**,ai-legal-evidence-organizer/**/*
+alwaysApply: false
+---
+<?xml version="1.0" encoding="UTF-8"?>
+<project_context project_id="ai_legal_evidence_organizer">
+    <static_info>
+        <goal>AI Legal Evidence Organizer is a desktop application for legal professionals and self-representatives to organize, tag, analyze, and understand legal evidence and case law, using AI (Google Gemini) for analysis and chat.</goal>
+        <key_documentation>
+            <file_reference path="ai-legal-evidence-organizer/README.md"/>
+            <description>The primary source of truth for this project. Refer to it for detailed features, the MCP server interaction model, tech stack (React, TypeScript, Tailwind CSS, Google Gemini API), and setup.</description>
+        </key_documentation>
+        <mcp_server_interaction_note>
+            A core architectural pattern is interaction with a CONCEPTUAL local MCP Server (defined via <file_reference path="ai-legal-evidence-organizer/mcp.json"/> - path likely in root or public) for file operations. The client-side logic for this is present even if a backend isn't running.
+        </mcp_server_interaction_note>
+        <ai_analysis_note>AI-powered analysis (summarization, policy extraction, chat) uses the Google Gemini API and requires an API key.</ai_analysis_note>
+        <data_persistence_note>Application metadata is stored in localStorage; file CONTENT is conceptually on the MCP server.</data_persistence_note>
+        <entry_points>
+            <file_reference path="ai-legal-evidence-organizer/index.html"/>
+            <!-- Add reference to main App.tsx or equivalent if known -->
+        </entry_points>
+    </static_info>
+    <dynamic_project_updates>
+        <title>Current AI Legal Evidence Organizer Project Updates (Snapshot from .cursor/ai-legal-evidence-organizer.md)</title>
+        <context_source_file>
+            <file_reference path=".cursor/ai-legal-evidence-organizer.md"/>
+            <description>This file contains detailed running updates and context specifically for the AI Legal Evidence Organizer project.</description>
+        </context_source_file>
+        <updates_summary source_file_ref=".cursor/ai-legal-evidence-organizer.md">
+            <!-- Project-specific updates from .cursor/ai-legal-evidence-organizer.md will be summarized here in XML format when available. -->
+            <no_updates_yet>No specific updates logged in .cursor/ai-legal-evidence-organizer.md yet.</no_updates_yet>
+        </updates_summary>
+        <important_note>
+            The XML summary in `updates_summary` is a static representation. Always consult the live <file_reference path=".cursor/ai-legal-evidence-organizer.md"/> file for current project-specific information.
+        </important_note>
+    </dynamic_project_updates>
+</project_context>
+
+

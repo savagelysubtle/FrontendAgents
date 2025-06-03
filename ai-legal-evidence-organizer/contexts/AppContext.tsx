@@ -1,6 +1,6 @@
 
 import React, { createContext, useContext, useState, useEffect, useCallback, ReactNode } from 'react';
-import { EvidenceFile, Tag, ChatMessage, AuditLogEntry, Theme, McpServerStatus, WcatCase, PolicyManual, PolicyEntry, PolicyReference, SavedChatSession, McpUserProvidedServers, McpApiConfig } from '../types';
+import { EvidenceFile, Tag, ChatMessage, AuditLogEntry, Theme, McpServerStatus, WcatCase, PolicyManual, PolicyEntry, PolicyReference, SavedChatSession, McpUserProvidedServers, McpApiConfig, AiTool, McpServerProcessConfig } from '../types';
 import { v4 as uuidv4 } from 'uuid'; 
 import { POLICY_NUMBER_REGEX, DEFAULT_WCAT_PATTERN_TAG_COLOR } from '../constants';
 import { McpClient } from '../services/McpClient'; 
@@ -55,7 +55,7 @@ interface AppContextType {
   toggleMainSidebar: () => void;
 
   savedChatSessions: SavedChatSession[];
-  saveChatSession: (name: string, messagesToSave: ChatMessage[], fileIds?: string[], wcatIds?: string[]) => void;
+  saveChatSession: (name: string, messagesToSave: ChatMessage[], fileIds?: string[], wcatIds?: string[], toolIds?: string[]) => void;
   loadChatSession: (sessionId: string) => SavedChatSession | null;
   deleteChatSession: (sessionId: string) => void;
 
@@ -63,8 +63,21 @@ interface AppContextType {
   userMcpServerDefinitions: McpUserProvidedServers | null; // From user's mcp.json
   mcpApiConfigs: McpApiConfig[]; // Array of API connection configurations
   activeApiConfigName: string | null;
-  setActiveApiConfig: (configName: string) => Promise<void>;
+  setActiveApiConfig: (configName: string | null) => Promise<void>;
   updateMcpApiConfigs: (newConfigs: McpApiConfig[]) => void;
+
+  // AI Tools Management
+  tools: AiTool[];
+  addTool: (toolData: Omit<AiTool, 'id' | 'type' | 'mcpProcessDetails'>, type?: 'custom_abstract') => AiTool; // For custom tools
+  deleteTool: (toolId: string) => void; // Only custom tools
+  selectedToolIdsForContext: string[];
+  toggleToolContext: (toolId: string) => void;
+
+  // Chat Context Selection
+  selectedFileIdsForContext: string[];
+  toggleFileContext: (fileId: string) => void;
+  selectedWcatCaseIdsForContext: string[];
+  toggleWcatCaseContext: (caseId: string) => void;
 }
 
 const AppContext = createContext<AppContextType | undefined>(undefined);
@@ -98,6 +111,14 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
   const [mcpApiConfigs, setMcpApiConfigsInternal] = useState<McpApiConfig[]>([]);
   const [activeApiConfigName, setActiveApiConfigNameInternal] = useState<string | null>(null);
 
+  // AI Tools State
+  const [tools, setTools] = useState<AiTool[]>([]);
+  const [selectedToolIdsForContext, setSelectedToolIdsForContext] = useState<string[]>([]);
+
+  // Chat Context Selection State
+  const [selectedFileIdsForContext, setSelectedFileIdsForContext] = useState<string[]>([]);
+  const [selectedWcatCaseIdsForContext, setSelectedWcatCaseIdsForContext] = useState<string[]>([]);
+
 
   const addAuditLogEntry = useCallback((action: string, details: string) => {
     const newEntry: AuditLogEntry = {
@@ -115,18 +136,19 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
         console.error("Application Error:", error);
     }
   }, []);
-
+  
   // Initialize McpClient and handle API config loading
   useEffect(() => {
     const initializeFullMcpClient = async () => {
       setIsMcpClientLoading(true);
+      localSetError(null); 
       
-      // 1. Load user's server process definitions (mcp.json)
+      let loadedUserMcpDefs: McpUserProvidedServers | null = null;
       try {
         const response = await fetch('/mcp.json');
         if (response.ok) {
-          const data: McpUserProvidedServers = await response.json();
-          setUserMcpServerDefinitions(data);
+          loadedUserMcpDefs = await response.json();
+          setUserMcpServerDefinitions(loadedUserMcpDefs);
           addAuditLogEntry('MCP_USER_DEFS_LOADED', 'User MCP server definitions (mcp.json) loaded.');
         } else {
           addAuditLogEntry('MCP_USER_DEFS_LOAD_ERROR', `Failed to load mcp.json: ${response.statusText}`);
@@ -135,7 +157,6 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
         addAuditLogEntry('MCP_USER_DEFS_LOAD_ERROR', `Exception loading mcp.json: ${e.message}`);
       }
 
-      // 2. Load API connection configurations (localStorage or mcp_api_configs.json)
       let loadedApiConfigs: McpApiConfig[] = [];
       const storedApiConfigs = localStorage.getItem('mcp-api-configurations');
       if (storedApiConfigs) {
@@ -162,40 +183,47 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
       }
       setMcpApiConfigsInternal(loadedApiConfigs);
 
-      // 3. Determine active API config
-      let currentActiveConfigName = localStorage.getItem('mcp-active-api-config-name');
-      let activeConfig: McpApiConfig | null = null;
+      let currentActiveConfigNameFromStorage = localStorage.getItem('mcp-active-api-config-name');
+      let activeConfigToSet: McpApiConfig | null = null;
 
-      if (currentActiveConfigName) {
-        activeConfig = loadedApiConfigs.find(c => c.configName === currentActiveConfigName) || null;
+      if (currentActiveConfigNameFromStorage) {
+        activeConfigToSet = loadedApiConfigs.find(c => c.configName === currentActiveConfigNameFromStorage) || null;
       }
-      if (!activeConfig && loadedApiConfigs.length > 0) {
-        activeConfig = loadedApiConfigs[0];
-        currentActiveConfigName = activeConfig.configName;
-        localStorage.setItem('mcp-active-api-config-name', currentActiveConfigName); // Save default if not set
-      }
-      setActiveApiConfigNameInternal(currentActiveConfigName);
       
-      // 4. Initialize McpClient instance
+      if (!activeConfigToSet && loadedApiConfigs.length > 0) {
+        activeConfigToSet = loadedApiConfigs[0];
+      }
+      
+      setActiveApiConfigNameInternal(activeConfigToSet ? activeConfigToSet.configName : null);
+      if (activeConfigToSet) {
+        localStorage.setItem('mcp-active-api-config-name', activeConfigToSet.configName);
+      } else {
+        localStorage.removeItem('mcp-active-api-config-name');
+      }
+      
       const client = new McpClient(addAuditLogEntry);
-      client.initialize(activeConfig); // Pass the determined active config
+      client.initialize(activeConfigToSet); 
       setMcpClientInstance(client);
 
-      // 5. Get server status
       if (client.isReady()) {
         try {
           const status = await client.getServerStatus();
           setMcpServerStatus(status);
-          if (!status.isRunning && status.error) {
+
+          if (!status.isRunning) {
             const serverName = client.getConfiguredServerName() || 'MCP Server';
             const baseUrl = client.getConfiguredBaseUrl() || 'configured address';
-            if (status.error.toLowerCase().includes("failed to fetch") || status.error.toLowerCase().includes("networkerror")) {
-              localSetError(`${serverName} at ${baseUrl} appears to be offline. File operations may fail.`);
+            const isDefaultConfigTryingToConnect = activeConfigToSet?.configName === "Default Local MCP Server";
+            const isNetworkError = status.error && (status.error.toLowerCase().includes("failed to fetch") || status.error.toLowerCase().includes("networkerror"));
+
+            if (isDefaultConfigTryingToConnect && isNetworkError) {
+              console.warn(`Initial check: ${serverName} at ${baseUrl} appears to be offline. Global error suppressed for default config.`);
+              addAuditLogEntry('MCP_DEFAULT_OFFLINE_STARTUP', `Initial check: ${serverName} at ${baseUrl} offline. Global error suppressed for this startup.`);
+            } else if (status.error) {
+                localSetError(`${serverName} at ${baseUrl} Issue: ${status.error}. File operations may fail.`);
             } else {
-              localSetError(`${serverName} Issue: ${status.error}. File operations may fail.`);
+                localSetError(`${serverName} at ${baseUrl} is not running (no specific error reported). File operations may fail.`);
             }
-          } else if (!status.isRunning) {
-            localSetError(`MCP Server is not running (no specific error reported). File operations may fail.`);
           }
         } catch (e: any) {
           const errorMessage = e.message || "Unknown error during MCP status check";
@@ -207,11 +235,43 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
         setMcpServerStatus({ isRunning: false, error: initError });
         localSetError(initError + " File operations will likely fail.");
       }
+      
+      // Initialize Tools from mcp.json after other configs are set
+      const storedTools = localStorage.getItem('app-tools');
+      let currentTools: AiTool[] = storedTools ? JSON.parse(storedTools) : [];
+
+      if (loadedUserMcpDefs?.mcpServers) {
+        const mcpServerTools: AiTool[] = Object.entries(loadedUserMcpDefs.mcpServers).map(([name, config]: [string, McpServerProcessConfig]) => ({
+          id: `mcp_process_${name.replace(/\s+/g, '_')}`, // Generate a stable ID
+          name: name,
+          description: config.description || `An MCP server process: ${name}`,
+          type: 'mcp_process',
+          usageExample: config.usageExample || `Consider using the '${name}' server process for relevant tasks.`,
+          mcpProcessDetails: {
+            command: config.command,
+            args: config.args,
+            cwd: config.cwd,
+          },
+          isAvailable: true, // Assume available; could be enhanced with health checks
+        }));
+
+        // Add new MCP tools if not already present (by name, to avoid duplicates if mcp.json changes subtly but tool is same)
+        mcpServerTools.forEach(mcpTool => {
+          if (!currentTools.some(t => t.name === mcpTool.name && t.type === 'mcp_process')) {
+            currentTools.push(mcpTool);
+          }
+        });
+         addAuditLogEntry('TOOLS_INIT_FROM_MCP_JSON', `${mcpServerTools.length} tools potentially derived from mcp.json.`);
+      }
+      setTools(currentTools);
+
+
       setIsMcpClientLoading(false);
     };
 
     initializeFullMcpClient();
-  }, [addAuditLogEntry, localSetError]);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [addAuditLogEntry]); 
 
 
   const updateMcpApiConfigs = useCallback((newConfigs: McpApiConfig[]) => {
@@ -220,31 +280,53 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
     addAuditLogEntry('MCP_API_CONFIGS_UPDATED', `${newConfigs.length} API configurations saved.`);
   }, [addAuditLogEntry]);
 
-  const setActiveApiConfig = useCallback(async (configName: string) => {
+  const setActiveApiConfig = useCallback(async (configName: string | null) => {
+    if (configName === null) {
+        setActiveApiConfigNameInternal(null);
+        localStorage.removeItem('mcp-active-api-config-name');
+        if (mcpClientInstance) {
+            mcpClientInstance.initialize(null); 
+        }
+        setMcpServerStatus({ isRunning: false, error: "No active API configuration." });
+        addAuditLogEntry('MCP_ACTIVE_API_CONFIG_CLEARED', 'Active API config cleared.');
+        localSetError(null); 
+        setIsMcpClientLoading(false); 
+        return;
+    }
+
     const newActiveConfig = mcpApiConfigs.find(c => c.configName === configName);
     if (newActiveConfig && mcpClientInstance) {
       setActiveApiConfigNameInternal(configName);
       localStorage.setItem('mcp-active-api-config-name', configName);
       
-      mcpClientInstance.initialize(newActiveConfig); // Re-initialize client with new config
+      mcpClientInstance.initialize(newActiveConfig); 
       addAuditLogEntry('MCP_ACTIVE_API_CONFIG_SET', `Active API config set to: ${configName}. McpClient re-initialized.`);
       
-      // Refresh server status with new config
-      setIsMcpClientLoading(true); // Show loading while status is fetched
-      const status = await mcpClientInstance.getServerStatus();
-      setMcpServerStatus(status);
-      setIsMcpClientLoading(false);
-      if (!status.isRunning && status.error) {
-        localSetError(`MCP Server (${newActiveConfig.configName}) Issue: ${status.error}.`);
-      } else if (!status.isRunning) {
-        localSetError(`MCP Server (${newActiveConfig.configName}) is not running.`);
-      } else {
-        localSetError(null); // Clear previous error if now running
+      setIsMcpClientLoading(true); 
+      try {
+        const status = await mcpClientInstance.getServerStatus();
+        setMcpServerStatus(status);
+        if (!status.isRunning && status.error) {
+          localSetError(`MCP Server (${newActiveConfig.configName}) at ${newActiveConfig.baseApiUrl} Issue: ${status.error}.`);
+        } else if (!status.isRunning) {
+          localSetError(`MCP Server (${newActiveConfig.configName}) at ${newActiveConfig.baseApiUrl} is not running.`);
+        } else {
+          localSetError(null); 
+        }
+      } catch (e: any) {
+        const errorMsg = `Error fetching status for ${configName}: ${e.message}`;
+        localSetError(errorMsg);
+        setMcpServerStatus({isRunning: false, error: errorMsg});
+        addAuditLogEntry('MCP_STATUS_FETCH_ERROR', errorMsg);
+      } finally {
+        setIsMcpClientLoading(false);
       }
+
     } else {
       const errorMsg = `Failed to set active API config: ${configName} not found or McpClient not available.`;
       localSetError(errorMsg);
       addAuditLogEntry('MCP_ACTIVE_API_CONFIG_ERROR', errorMsg);
+       setIsMcpClientLoading(false); 
     }
   }, [mcpApiConfigs, mcpClientInstance, addAuditLogEntry, localSetError]);
 
@@ -279,6 +361,20 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
     }
     const storedChatSessions = localStorage.getItem('app-chat-sessions');
     if (storedChatSessions) setSavedChatSessions(JSON.parse(storedChatSessions));
+    const storedTools = localStorage.getItem('app-tools'); 
+    if (storedTools) {
+        const loadedTools: AiTool[] = JSON.parse(storedTools);
+        // Defer setting tools from mcp.json until after initial McpClient setup to avoid race conditions
+        // setTools(loadedTools); 
+    }
+     const storedSelectedToolIds = localStorage.getItem('app-selected-tool-ids');
+     if (storedSelectedToolIds) setSelectedToolIdsForContext(JSON.parse(storedSelectedToolIds));
+     const storedSelectedFileIds = localStorage.getItem('app-selected-file-ids');
+     if (storedSelectedFileIds) setSelectedFileIdsForContext(JSON.parse(storedSelectedFileIds));
+     const storedSelectedWcatIds = localStorage.getItem('app-selected-wcat-ids');
+     if (storedSelectedWcatIds) setSelectedWcatCaseIdsForContext(JSON.parse(storedSelectedWcatIds));
+
+
   }, []);
 
   useEffect(() => { localStorage.setItem('app-files', JSON.stringify(files)); }, [files]);
@@ -291,6 +387,10 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
   useEffect(() => {
     localStorage.setItem('main-sidebar-collapsed', JSON.stringify(isMainSidebarCollapsed));
   }, [isMainSidebarCollapsed]);
+  useEffect(() => { localStorage.setItem('app-tools', JSON.stringify(tools)); }, [tools]);
+  useEffect(() => { localStorage.setItem('app-selected-tool-ids', JSON.stringify(selectedToolIdsForContext)); }, [selectedToolIdsForContext]);
+  useEffect(() => { localStorage.setItem('app-selected-file-ids', JSON.stringify(selectedFileIdsForContext)); }, [selectedFileIdsForContext]);
+  useEffect(() => { localStorage.setItem('app-selected-wcat-ids', JSON.stringify(selectedWcatCaseIdsForContext)); }, [selectedWcatCaseIdsForContext]);
 
 
   const setApiKey = (key: string | null) => {
@@ -474,8 +574,11 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
 
   const clearChatHistory = useCallback(() => {
     setChatHistory([]);
+    setSelectedFileIdsForContext([]); 
+    setSelectedWcatCaseIdsForContext([]); 
+    setSelectedToolIdsForContext([]); 
     resetGeminiChatSession();
-    addAuditLogEntry('CHAT_CLEARED', 'Chat history cleared and AI session reset.');
+    addAuditLogEntry('CHAT_CLEARED', 'Chat history, AI session, and all context items cleared.');
   }, [addAuditLogEntry]);
   
   const getWcatCaseById = useCallback((id: string) => {
@@ -699,7 +802,7 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
                       .map(item => item.wcase);
   }, [wcatCases]);
 
-  const saveChatSession = useCallback((name: string, messagesToSave: ChatMessage[], fileIds?: string[], wcatIds?: string[]) => {
+  const saveChatSession = useCallback((name: string, messagesToSave: ChatMessage[], fileIds?: string[], wcatIds?: string[], toolIds?: string[]) => {
     const newSession: SavedChatSession = {
         id: uuidv4(),
         name,
@@ -707,6 +810,7 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
         messages: messagesToSave,
         relatedFileIds: fileIds,
         relatedWcatCaseIds: wcatIds,
+        relatedToolIds: toolIds, 
     };
     setSavedChatSessions(prev => [newSession, ...prev]);
     addAuditLogEntry('CHAT_SESSION_SAVED', `Session "${name}" saved with ${messagesToSave.length} messages.`);
@@ -716,6 +820,9 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
     const sessionToLoad = savedChatSessions.find(s => s.id === sessionId);
     if (sessionToLoad) {
         setChatHistory(sessionToLoad.messages);
+        setSelectedFileIdsForContext(sessionToLoad.relatedFileIds || []); 
+        setSelectedWcatCaseIdsForContext(sessionToLoad.relatedWcatCaseIds || []);
+        setSelectedToolIdsForContext(sessionToLoad.relatedToolIds || []); 
         resetGeminiChatSession(); 
         addAuditLogEntry('CHAT_SESSION_LOADED', `Session "${sessionToLoad.name}" loaded.`);
         return sessionToLoad;
@@ -731,6 +838,56 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
         addAuditLogEntry('CHAT_SESSION_DELETED', `Session "${sessionToDelete.name}" (ID: ${sessionId}) deleted.`);
     }
   }, [savedChatSessions, addAuditLogEntry]);
+
+  // AI Tool functions
+  const addTool = useCallback((toolData: Omit<AiTool, 'id' | 'type' | 'mcpProcessDetails'>, type: 'custom_abstract' = 'custom_abstract'): AiTool => {
+    const newTool: AiTool = {
+        ...toolData,
+        id: uuidv4(),
+        type: type, 
+    };
+    setTools(prevTools => [...prevTools, newTool]);
+    addAuditLogEntry('AI_TOOL_ADDED', `Custom tool "${newTool.name}" added.`);
+    return newTool;
+  }, [addAuditLogEntry]);
+
+  const deleteTool = useCallback((toolId: string) => {
+    setTools(prevTools => {
+        const toolToDelete = prevTools.find(t => t.id === toolId);
+        if (toolToDelete && toolToDelete.type === 'custom_abstract') {
+            addAuditLogEntry('AI_TOOL_DELETED', `Custom tool "${toolToDelete.name}" deleted.`);
+            return prevTools.filter(t => t.id !== toolId);
+        }
+        addAuditLogEntry('AI_TOOL_DELETE_FAILED', `Failed to delete tool ID ${toolId} (not found or not custom).`);
+        return prevTools;
+    });
+    setSelectedToolIdsForContext(prev => prev.filter(id => id !== toolId));
+  }, [addAuditLogEntry]);
+
+  const toggleToolContext = useCallback((toolId: string) => {
+    setSelectedToolIdsForContext(prev =>
+        prev.includes(toolId) ? prev.filter(id => id !== toolId) : [...prev, toolId]
+    );
+    const toolName = tools.find(t => t.id === toolId)?.name || toolId;
+    addAuditLogEntry('AI_TOOL_CONTEXT_TOGGLED', `Tool "${toolName}" context toggled.`);
+  }, [tools, addAuditLogEntry]);
+
+  // Chat Context Selection Functions
+  const toggleFileContext = useCallback((fileId: string) => {
+    setSelectedFileIdsForContext(prev =>
+      prev.includes(fileId) ? prev.filter(id => id !== fileId) : [...prev, fileId]
+    );
+    const fileName = files.find(f => f.id === fileId)?.name || fileId;
+    addAuditLogEntry('AI_FILE_CONTEXT_TOGGLED', `File "${fileName}" context toggled.`);
+  }, [files, addAuditLogEntry]);
+
+  const toggleWcatCaseContext = useCallback((caseId: string) => {
+    setSelectedWcatCaseIdsForContext(prev =>
+      prev.includes(caseId) ? prev.filter(id => id !== caseId) : [...prev, caseId]
+    );
+    const caseName = wcatCases.find(c => c.id === caseId)?.decisionNumber || caseId;
+    addAuditLogEntry('AI_WCAT_CONTEXT_TOGGLED', `WCAT Case "${caseName}" context toggled.`);
+  }, [wcatCases, addAuditLogEntry]);
 
 
   return (
@@ -750,7 +907,10 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
       generateAndAssignWcatPatternTags,
       isMainSidebarCollapsed, toggleMainSidebar,
       savedChatSessions, saveChatSession, loadChatSession, deleteChatSession,
-      userMcpServerDefinitions, mcpApiConfigs, activeApiConfigName, setActiveApiConfig, updateMcpApiConfigs
+      userMcpServerDefinitions, mcpApiConfigs, activeApiConfigName, setActiveApiConfig, updateMcpApiConfigs,
+      tools, addTool, deleteTool, selectedToolIdsForContext, toggleToolContext,
+      selectedFileIdsForContext, toggleFileContext,
+      selectedWcatCaseIdsForContext, toggleWcatCaseContext
     }}>
       {children}
     </AppContext.Provider>

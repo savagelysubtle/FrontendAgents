@@ -24,6 +24,7 @@ const SettingsPage: React.FC = () => {
 
   const [apiConfigsJson, setApiConfigsJson] = useState<string>('');
   const [selectedActiveConfigInDropdown, setSelectedActiveConfigInDropdown] = useState<string>(activeApiConfigName || '');
+  const [importedFileError, setImportedFileError] = useState<string | null>(null);
 
   useEffect(() => {
     setCurrentMcpStatus(contextMcpStatus);
@@ -68,15 +69,11 @@ const SettingsPage: React.FC = () => {
         return;
     }
     try {
-      // The McpClient.addAllowedDirectory method sends the request to the server.
-      // The server is responsible for updating its internal state and, if designed to,
-      // persisting this change for future runs (e.g., by modifying its own config file or args).
-      // The frontend cannot directly modify the Rust server's startup configuration.
       const success = await mcpClient.addAllowedDirectory(newAllowedDir);
       if (success) {
         addAuditLogEntry('MCP_DIRECTORY_ADDED_CLIENT', `Directory "${newAllowedDir}" add request sent to server.`);
         setNewAllowedDir('');
-        await fetchMcpStatus(); // Refresh status to see if the server reflects the change
+        await fetchMcpStatus(); 
       } else {
         setError(`Server failed to process "add directory" request for "${newAllowedDir}". Check server logs.`);
       }
@@ -88,7 +85,7 @@ const SettingsPage: React.FC = () => {
   const handleApiKeySave = async () => {
     setIsTestingApiKey(true);
     setApiKeyTestResult(null);
-    setError(null); // Clear previous errors
+    setError(null); 
     const originalEnvKey = process.env.API_KEY;
     (process.env as any).API_KEY = localApiKey;
 
@@ -109,40 +106,96 @@ const SettingsPage: React.FC = () => {
   };
 
   const handleSaveApiConfigs = async () => {
-    setError(null); // Clear previous errors
+    setError(null); 
+    setImportedFileError(null);
     try {
       const parsedConfigs: McpApiConfig[] = JSON.parse(apiConfigsJson);
       if (!Array.isArray(parsedConfigs) || !parsedConfigs.every(c => c.configName && c.baseApiUrl && c.endpoints)) {
-        throw new Error("Invalid JSON structure. Ensure it's an array of McpApiConfig objects.");
-      }
-      updateMcpApiConfigs(parsedConfigs);
-      
-      let newActiveToSet = selectedActiveConfigInDropdown;
-      if (!parsedConfigs.find(c => c.configName === newActiveToSet) && parsedConfigs.length > 0) {
-        newActiveToSet = parsedConfigs[0].configName;
-        setSelectedActiveConfigInDropdown(newActiveToSet);
+        throw new Error("Invalid JSON structure. Ensure it's an array of McpApiConfig objects, each with configName, baseApiUrl, and endpoints.");
       }
       
-      if (newActiveToSet) {
-        await setActiveApiConfig(newActiveToSet);
-        // alert("API Configurations saved and applied!"); // Consider removing alert if setError provides enough feedback
+      updateMcpApiConfigs(parsedConfigs); // Update the list in context first
+
+      let configNameToActivate: string | null = null;
+      if (parsedConfigs.length > 0) {
+        // Try to keep current selection if valid, otherwise pick first
+        const currentSelectionIsValid = parsedConfigs.find(c => c.configName === selectedActiveConfigInDropdown);
+        if (currentSelectionIsValid) {
+          configNameToActivate = selectedActiveConfigInDropdown;
+        } else {
+          configNameToActivate = parsedConfigs[0].configName;
+        }
+      }
+      // If parsedConfigs.length is 0, configNameToActivate remains null
+
+      await setActiveApiConfig(configNameToActivate); // This will handle null correctly
+
+      // Sync local dropdown state with what was actually activated
+      setSelectedActiveConfigInDropdown(configNameToActivate || ''); 
+
+      if (configNameToActivate) {
+        // alert("API Configurations saved and applied!"); // Optional: replace with a more subtle notification
+        addAuditLogEntry('MCP_API_CONFIGS_SAVED_UI', `${parsedConfigs.length} API configurations saved. Active: ${configNameToActivate}.`);
       } else {
-        // alert("API Configurations saved, but no valid configuration available to make active.");
-        setError("API Configurations saved, but no valid configuration available to make active.");
+        setError("API Configurations saved, but no configurations are available to make active.");
+        addAuditLogEntry('MCP_API_CONFIGS_SAVED_UI_EMPTY', 'API configurations saved (empty list). Active config cleared.');
       }
-      addAuditLogEntry('MCP_API_CONFIGS_SAVED_UI', `${parsedConfigs.length} API configurations saved from UI.`);
+
     } catch (e: any) {
       const errorMsg = `Error saving API configurations: ${e.message}. Please ensure it's valid JSON.`;
       setError(errorMsg);
-      // alert(`Error: ${e.message}. Please check the JSON format.`);
       addAuditLogEntry('MCP_API_CONFIGS_SAVE_ERROR_UI', errorMsg);
     }
   };
 
   const handleActiveApiConfigChange = async (e: React.ChangeEvent<HTMLSelectElement>) => {
     const newActiveName = e.target.value;
-    setSelectedActiveConfigInDropdown(newActiveName);
-    await setActiveApiConfig(newActiveName); 
+    setSelectedActiveConfigInDropdown(newActiveName); // Update local state for dropdown
+    if (newActiveName) { // Only call setActiveApiConfig if a valid name is selected
+        await setActiveApiConfig(newActiveName); 
+    } else { // If dropdown selection becomes empty (e.g. "No API configurations loaded")
+        await setActiveApiConfig(null);
+    }
+  };
+
+  const handleImportApiConfigsFile = (event: React.ChangeEvent<HTMLInputElement>) => {
+    setImportedFileError(null);
+    setError(null);
+    const file = event.target.files?.[0];
+    if (!file) return;
+
+    const reader = new FileReader();
+    reader.onload = (e) => {
+      try {
+        const text = e.target?.result as string;
+        const parsedData: McpApiConfig[] = JSON.parse(text);
+        
+        // Basic validation
+        if (!Array.isArray(parsedData)) {
+          throw new Error("Imported file is not a JSON array.");
+        }
+        if (parsedData.length > 0 && !parsedData.every(c => c.configName && c.baseApiUrl && c.endpoints && typeof c.endpoints === 'object')) {
+          throw new Error("Imported JSON array does not match the expected McpApiConfig structure. Each object must have 'configName', 'baseApiUrl', and 'endpoints'.");
+        }
+        
+        setApiConfigsJson(JSON.stringify(parsedData, null, 2));
+        addAuditLogEntry('MCP_API_CONFIGS_FILE_PREPARED', `Configurations from file ${file.name} loaded into editor.`);
+        alert(`Configurations from "${file.name}" loaded into the editor. Review and click "Save & Apply" to persist.`);
+      } catch (err: any) {
+        const errorMsg = `Error processing imported file "${file.name}": ${err.message}`;
+        setImportedFileError(errorMsg);
+        setError(errorMsg); // Also show in global error display
+        addAuditLogEntry('MCP_API_CONFIGS_FILE_IMPORT_ERROR', errorMsg);
+      }
+    };
+    reader.onerror = () => {
+      const errorMsg = `Error reading file "${file.name}".`;
+      setImportedFileError(errorMsg);
+      setError(errorMsg);
+      addAuditLogEntry('MCP_API_CONFIGS_FILE_READ_ERROR', errorMsg);
+    }
+    reader.readAsText(file);
+    event.target.value = ''; // Reset file input
   };
   
   const activeConfigDetails = mcpApiConfigs.find(c => c.configName === activeApiConfigName);
@@ -266,11 +319,24 @@ const SettingsPage: React.FC = () => {
       </section>
 
        <section className="bg-surface p-6 rounded-lg shadow border border-border">
-        <h3 className="text-xl font-semibold text-textPrimary mb-2">MCP API Connection Configurations</h3>
+        <h3 className="text-xl font-semibold text-textPrimary mb-2">MCP API Connection Profiles</h3>
         <p className="text-xs text-textSecondary mb-2">
-          Edit the JSON below to define API connection profiles. These specify how this application connects to MCP server APIs. 
-          You can copy/paste configurations here (e.g., from another app's setup file that defines API connections).
+          Define or import sets of API connection profiles. This application uses these to connect to MCP server APIs.
+          The structure should be an array of McpApiConfig objects.
         </p>
+        
+        <div className="my-4">
+            <label htmlFor="import-api-configs" className="block text-sm font-medium text-textSecondary">Import API Connection Profiles File</label>
+            <input 
+                type="file" 
+                id="import-api-configs"
+                accept=".json"
+                onChange={handleImportApiConfigsFile}
+                className="mt-1 block w-full text-sm text-textSecondary file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-sm file:font-semibold file:bg-primary-light file:text-primary hover:file:bg-primary-light/80 dark:file:bg-primary-dark dark:file:text-primary-light dark:hover:file:bg-primary-dark/80 cursor-pointer"
+            />
+            {importedFileError && <p className="mt-1 text-xs text-red-500">{importedFileError}</p>}
+        </div>
+
         <textarea
             value={apiConfigsJson}
             onChange={(e) => setApiConfigsJson(e.target.value)}
@@ -282,15 +348,8 @@ const SettingsPage: React.FC = () => {
     "baseApiUrl": "http://localhost:8081/mcp-api",
     "endpoints": {
       "listDirectory": "/fs/list",
-      "readFile": "/fs/read",
-      "writeFile": "/fs/write",
-      "renameFile": "/fs/rename",
-      "deleteFileOrDirectory": "/fs/delete",
-      "getDirectoryTree": "/fs/tree",
-      "batchRenameFiles": "/fs/batchRename",
-      "createZip": "/fs/zip",
-      "addAllowedDirectory": "/config/allowDir",
-      "getServerStatus": "http://localhost:8081/status"
+      /* ... other endpoints ... */
+      "getServerStatus": "http://localhost:8081/status" 
     },
     "requestTimeoutMs": 20000,
     "expectedServerVersion": "0.1.0"

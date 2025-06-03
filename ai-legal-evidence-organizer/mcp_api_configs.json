@@ -1,0 +1,21 @@
+
+[
+  {
+    "configName": "Default Local MCP Server",
+    "baseApiUrl": "http://localhost:8081/mcp-api",
+    "endpoints": {
+      "listDirectory": "/fs/list",
+      "readFile": "/fs/read",
+      "writeFile": "/fs/write",
+      "renameFile": "/fs/rename",
+      "deleteFileOrDirectory": "/fs/delete",
+      "getDirectoryTree": "/fs/tree",
+      "batchRenameFiles": "/fs/batchRename",
+      "createZip": "/fs/zip",
+      "addAllowedDirectory": "/config/allowDir",
+      "getServerStatus": "http://localhost:8081/status"
+    },
+    "requestTimeoutMs": 20000,
+    "expectedServerVersion": "0.1.0"
+  }
+]

@@ -1,6 +1,6 @@
 
-import { GoogleGenAI, GenerateContentResponse, Chat } from "@google/genai";
-import { ChatMessage, EvidenceFile, WcatCase, WcatCaseInfoExtracted, PolicyReference, PolicyEntry } from '../types';
+import { GoogleGenAI, GenerateContentResponse, Chat } from "@google/genai"; // Corrected import
+import { ChatMessage, EvidenceFile, WcatCase, WcatCaseInfoExtracted, PolicyReference, PolicyEntry, AiTool } from '../types';
 import { 
     GEMINI_TEXT_MODEL, 
     AI_ANALYSIS_PROMPT_PREFIX, 
@@ -88,15 +88,14 @@ const initializeChat = () => {
   return chatInstance;
 };
 
-export const getChatResponse = async (
-  history: ChatMessage[], 
-  userQuery: string, 
+const prepareChatPrompt = (
+  userQuery: string,
   relevantFiles?: EvidenceFile[],
-  relevantWcatCases?: WcatCase[]
-): Promise<{text: string, groundingSources?: Array<{uri:string, title: string}>}> => {
-  const chat = initializeChat();
+  relevantWcatCases?: WcatCase[],
+  relevantTools?: AiTool[] // Added AiTool[]
+): string => {
   let prompt = userQuery;
-  let contextHeader = "\n\nRelevant Context:\n";
+  let contextHeader = "\n\nRelevant Context & Available Tools:\n";
   let contextProvided = false;
 
   if (relevantFiles && relevantFiles.length > 0) {
@@ -115,12 +114,33 @@ export const getChatResponse = async (
     contextHeader += `\n--- Relevant WCAT Precedents ---\n${wcatContext}`;
   }
   
+  if (relevantTools && relevantTools.length > 0) {
+    contextProvided = true;
+    const toolContext = relevantTools.map(tool =>
+      `Tool: ${tool.name} (${tool.type})\nDescription: ${tool.description}${tool.usageExample ? `\nUsage Example: ${tool.usageExample}` : ''}${tool.type === 'mcp_process' && tool.mcpProcessDetails ? `\n(This is an MCP server process: ${tool.mcpProcessDetails.command} ${tool.mcpProcessDetails.args.join(' ')})` : ''}`
+    ).join("\n---\n");
+    contextHeader += `\n--- Available Tools/Capabilities ---\n${toolContext}`;
+  }
+  
   if (contextProvided) {
     prompt = `${contextHeader}\n\nUser Query: ${userQuery}`;
   }
+  return prompt;
+};
+
+export const getChatResponse = async (
+  history: ChatMessage[], 
+  userQuery: string, 
+  relevantFiles?: EvidenceFile[],
+  relevantWcatCases?: WcatCase[],
+  relevantTools?: AiTool[] // Added AiTool[]
+): Promise<{text: string, groundingSources?: Array<{uri:string, title: string}>}> => {
+  const chat = initializeChat();
+  const fullPrompt = prepareChatPrompt(userQuery, relevantFiles, relevantWcatCases, relevantTools);
 
   try {
-    const response: GenerateContentResponse = await chat.sendMessage({ message: prompt });
+    // For non-streaming, sendMessage returns GenerateContentResponse directly
+    const response: GenerateContentResponse = await chat.sendMessage({ message: fullPrompt });
     
     const groundingMetadata = response.candidates?.[0]?.groundingMetadata;
     const groundingSources = groundingMetadata?.groundingChunks
@@ -133,6 +153,27 @@ export const getChatResponse = async (
     throw error;
   }
 };
+
+export const getChatResponseStream = async (
+  userQuery: string, 
+  relevantFiles?: EvidenceFile[],
+  relevantWcatCases?: WcatCase[],
+  relevantTools?: AiTool[] // Added AiTool[]
+): Promise<AsyncIterable<GenerateContentResponse>> => { // Corrected return type
+  const chat = initializeChat();
+  const fullPrompt = prepareChatPrompt(userQuery, relevantFiles, relevantWcatCases, relevantTools);
+
+  try {
+    // Based on the error and SDK examples, chat.sendMessageStream() when awaited
+    // directly yields the AsyncIterable (the stream itself).
+    const stream = await chat.sendMessageStream({ message: fullPrompt });
+    return stream;
+  } catch (error) {
+    console.error("Error getting chat stream response:", error);
+    throw error;
+  }
+};
+
 
 export const resetChatSession = () => {
   chatInstance = null; 
@@ -187,7 +228,7 @@ export const expandWcatSearchQuery = async (userQuery: string): Promise<string> 
       model: GEMINI_TEXT_MODEL,
       contents: prompt,
     });
-    return response.text; // Assuming Gemini returns the expanded query string directly
+    return response.text; 
   } catch (error) {
     console.error("Error expanding WCAT search query:", error);
     throw error;
@@ -240,16 +281,15 @@ export const extractPolicyEntriesFromManualText = async (manualText: string, man
     });
 
     let jsonStr = response.text.trim();
-    const fenceRegex = /^```(\w*)?\s*\n?(.*?)\n?\s*```$/s; // Regex to remove markdown fences if present
+    const fenceRegex = /^```(\w*)?\s*\n?(.*?)\n?\s*```$/s; 
     const match = jsonStr.match(fenceRegex);
     if (match && match[2]) {
       jsonStr = match[2].trim();
     }
     
     const parsedData = JSON.parse(jsonStr);
-    // Add basic validation if needed, e.g., check if it's an array
     if (Array.isArray(parsedData)) {
-        return parsedData.map(item => ({ // Ensure only expected fields are mapped
+        return parsedData.map(item => ({ 
             policyNumber: item.policyNumber,
             title: item.title,
             page: item.page,

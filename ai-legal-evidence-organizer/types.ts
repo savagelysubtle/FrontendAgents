@@ -42,6 +42,7 @@ export interface ChatMessage {
   timestamp: string; // ISO date string
   relatedFileIds?: string[];
   relatedWcatCaseIds?: string[];
+  relatedToolIds?: string[]; // Added for tool context
 }
 
 export interface AuditLogEntry {
@@ -156,14 +157,18 @@ export interface SavedChatSession {
   messages: ChatMessage[];
   relatedFileIds?: string[];
   relatedWcatCaseIds?: string[];
+  relatedToolIds?: string[]; // Added for tool context
 }
 
 // For mcp.json (user-provided server execution definitions)
 export interface McpServerProcessConfig {
   command: string;
+  type?: 'stdio' | 'http'; // Optional type, 'stdio' is common in MCP docs for local
   args: string[];
   cwd?: string;
   env?: Record<string, string>;
+  description?: string; 
+  usageExample?: string; 
 }
 export interface McpUserProvidedServers {
   mcpServers: Record<string, McpServerProcessConfig>;
@@ -176,16 +181,33 @@ export interface McpApiEndpoints {
   writeFile: string;
   renameFile: string;
   deleteFileOrDirectory: string;
-  getDirectoryTree: string;
-  batchRenameFiles: string;
+  getDirectoryTree: string; 
+  batchRenameFiles: string; 
   createZip: string;
   addAllowedDirectory: string;
-  getServerStatus: string; // Can be an absolute URL
+  getServerStatus: string; 
 }
+
 export interface McpApiConfig {
   configName: string;
-  baseApiUrl: string; // Base URL for most API endpoints
+  baseApiUrl: string;
   endpoints: McpApiEndpoints;
-  requestTimeoutMs?: number; // Default request timeout in milliseconds
-  expectedServerVersion?: string; // Optional expected version of the MCP server API
+  requestTimeoutMs?: number;
+  expectedServerVersion?: string;
+}
+
+// New type for AI Tools
+export interface AiTool {
+  id: string;
+  name: string;
+  description: string;
+  type: 'mcp_process' | 'custom_abstract'; // 'mcp_process' derived from mcp.json, 'custom_abstract' user-defined
+  usageExample?: string; // How to conceptually use the tool in chat
+  // For mcp_process tools, we can store the original command details for reference, though client won't execute directly
+  mcpProcessDetails?: { 
+    command: string;
+    args: string[];
+    cwd?: string;
+  };
+  isAvailable?: boolean; // Could be used if a tool's backend (mcp_process) has a health check
 }

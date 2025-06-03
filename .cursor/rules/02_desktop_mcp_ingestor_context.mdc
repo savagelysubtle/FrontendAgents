@@ -1,0 +1,38 @@
+---
+description:
+globs: desktop-mcp-ingestor/**,desktop-mcp-ingestor/**/*
+alwaysApply: false
+---
+<?xml version="1.0" encoding="UTF-8"?>
+<project_context project_id="desktop_mcp_ingestor">
+    <static_info>
+        <goal>Desktop MCP Ingestor is a local desktop application for ingesting local folders, summarizing their content, and enabling AI chat about this content. It relies on an external backend AG-UI compatible agent for AI functionalities and tool execution.</goal>
+        <key_documentation>
+            <file_reference path="desktop-mcp-ingestor/README.md"/>
+            <description>The primary source of truth for this project. Refer to it for architecture, AG-UI integration details, tech stack (React 19, TypeScript, Tailwind CSS, @ag-ui/client), and setup.</description>
+        </key_documentation>
+        <backend_dependency_note>This application REQUIRES a separate, running AG-UI compatible backend agent. The frontend itself does not directly call AI models for chat.</backend_dependency_note>
+        <example_config_note>
+            The <file_reference path="desktop-mcp-ingestor/mcp.json"/> is an EXAMPLE configuration for a backend agent, not directly used by the frontend for its own operations.
+        </example_config_note>
+        <entry_points>
+            <file_reference path="desktop-mcp-ingestor/index.html"/>
+            <file_reference path="desktop-mcp-ingestor/src/App.tsx"/>
+        </entry_points>
+    </static_info>
+    <dynamic_project_updates>
+        <title>Current Desktop MCP Ingestor Project Updates (Snapshot from .cursor/desktop-mcp-ingestor.md)</title>
+        <context_source_file>
+            <file_reference path=".cursor/desktop-mcp-ingestor.md"/>
+            <description>This file contains detailed running updates and context specifically for the Desktop MCP Ingestor project.</description>
+        </context_source_file>
+        <updates_summary source_file_ref=".cursor/desktop-mcp-ingestor.md">
+            <!-- Project-specific updates from .cursor/desktop-mcp-ingestor.md will be summarized here in XML format when available. -->
+            <no_updates_yet>No specific updates logged in .cursor/desktop-mcp-ingestor.md yet.</no_updates_yet>
+        </updates_summary>
+        <important_note>
+            The XML summary in `updates_summary` is a static representation. Always consult the live <file_reference path=".cursor/desktop-mcp-ingestor.md"/> file for current project-specific information.
+        </important_note>
+    </dynamic_project_updates>
+</project_context>
+
