@@ -1,0 +1,61 @@
+{
+  "mcpServers": {
+    "Python": {
+      "command": "cmd",
+      "type": "stdio",
+      "args": [
+        "/c",
+        "D:\\Coding\\AiChemistCodex\\AiChemistForge\\ToolRack\\Python\\start_mcp_server.bat"
+      ],
+      "cwd": "D:\\Coding\\AiChemistCodex\\AiChemistForge\\ToolRack\\Python",
+      "env": {
+        "LOG_LEVEL": "INFO"
+      }
+    },
+    "Rust": {
+      "command": "cargo",
+      "args": [
+        "run",
+        "--manifest-path",
+        "D:/Coding/AiChemistCodex/AiChemistForge/ToolRack/Rust/Cargo.toml",
+        "--",
+        "--allow-write",
+        "D:/Coding/AiChemistCodex/AiChemistForge/ToolRack/Rust/test_files",
+        "F:/",
+        "D:/"
+      ],
+      "cwd": "D:/Coding/AiChemistCodex/AiChemistForge/ToolRack/Rust/",
+      "env": {
+        "RUST_LOG": "debug"
+      }
+    },
+    "brave-search": {
+      "command": "cmd",
+      "args": [
+        "/c",
+        "npx",
+        "-y",
+        "@smithery/cli@latest",
+        "run",
+        "@smithery-ai/brave-search",
+        "--key",
+        "2474ef32-eec0-4dab-83cb-e91625c7f5b1",
+        "--profile",
+        "compact-skunk-4CLCEK"
+      ]
+    },
+    "toolbox": {
+      "command": "npx",
+      "args": [
+        "-y",
+        "@smithery/cli@latest",
+        "run",
+        "@smithery/toolbox",
+        "--key",
+        "2474ef32-eec0-4dab-83cb-e91625c7f5b1",
+        "--profile",
+        "compact-skunk-4CLCEK"
+      ]
+    }
+  }
+}

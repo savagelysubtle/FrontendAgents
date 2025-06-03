@@ -78,26 +78,76 @@ The backend agent is responsible for:
 
 The `mcp.json` file in this repository serves as an *example* of how such tools might be defined for a backend agent. The frontend itself displays the tools that are dynamically reported by the connected agent.
 
-## Setup and Running (Conceptual for a Local App)
+## Setup and Running
 
-This application is designed to run locally, likely within a specialized desktop environment that provides the `process.env.API_KEY` for the backend agent and handles the HTML/JS/CSS rendering.
+This application is designed to run locally. It communicates with a backend AG-UI agent for its AI capabilities.
 
-1.  **Backend Agent:**
-    *   Ensure your AG-UI compatible backend agent is running and configured with necessary API keys (e.g., `API_KEY` for Gemini) and tool definitions.
-2.  **Frontend:**
-    *   Configure the **Backend Agent URL** in the application's **Settings Panel** to point to your running agent.
-    *   The application should then be able to connect and operate.
+**Prerequisites:**
 
-For local development of the frontend code itself (outside the target desktop environment):
-1.  Clone the repository.
-2.  Ensure you have Node.js installed.
-3.  You would typically use a local development server:
+*   Node.js (which includes npm) installed on your system. You can download it from [https://nodejs.org/](https://nodejs.org/).
+*   A running AG-UI compatible backend agent.
+
+**Steps for Local Development:**
+
+1.  **Clone the Repository:**
     ```bash
-    # Example using a simple server, actual command depends on your setup
-    npx serve .
+    git clone <repository_url> # Replace <repository_url> with the actual URL
+    cd FrontendAgents/desktop-mcp-ingestor
     ```
-4.  Open the application in your browser (usually `http://localhost:port`).
-5.  You will need a mock or actual AG-UI backend agent running for full functionality.
+
+2.  **Install Dependencies:**
+    Navigate to the `desktop-mcp-ingestor` directory if you aren't already there. Then, install the project's dependencies using npm (or your preferred package manager like Yarn or PNPM):
+    ```bash
+    npm install
+    # or
+    # yarn install
+    # or
+    # pnpm install
+    ```
+
+3.  **Configure Backend Agent:**
+    *   Ensure your AG-UI compatible backend agent is running.
+    *   Once the frontend application is running (see next step), open it in your browser.
+    *   Navigate to the **Settings Panel** (`Settings` in the UI).
+    *   Enter the URL of your running backend agent in the **Backend Agent URL** field and save the settings.
+
+4.  **Run the Development Server:**
+    To start the Vite development server, run the following command:
+    ```bash
+    npm run dev
+    # or
+    # yarn dev
+    # or
+    pnpm dev
+    ```
+    This will typically start the application on `http://localhost:5173` (Vite's default) or another port if 5173 is in use. The console output will show the exact URL. Open this URL in your web browser.
+
+5.  **Interact with the Application:**
+    *   You can now use the application to ingest folders and chat with the AI (via the configured backend agent).
+
+**Building and Previewing for Production:**
+
+1.  **Build the Application:**
+    To create an optimized production build, run:
+    ```bash
+    npm run build
+    # or
+    # yarn build
+    # or
+    pnpm build
+    ```
+    This will create a `dist` folder containing the static assets.
+
+2.  **Preview the Production Build:**
+    To locally serve and preview the production build from the `dist` folder, run:
+    ```bash
+    npm run preview
+    # or
+    # yarn preview
+    # or
+    pnpm preview
+    ```
+    This will start a local server, and the console output will show the URL to access the preview.
 
 ## Configuration
 

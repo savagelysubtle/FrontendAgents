@@ -1,0 +1,219 @@
+
+import React, { useState } from 'react';
+import { EvidenceFile, WcatCase, SavedChatSession } from '../../types';
+import { useAppContext } from '../../contexts/AppContext'; // Import to access saved sessions
+
+interface ChatContextSidebarProps {
+  onToggleCollapse: () => void; 
+  files: EvidenceFile[];
+  wcatCases: WcatCase[];
+  selectedFileIds: string[];
+  onToggleFileContext: (fileId: string, forceAdd?: boolean) => void;
+  selectedWcatCaseIds: string[];
+  onToggleWcatCaseContext: (caseId: string, forceAdd?: boolean) => void;
+  onLoadSession: (sessionId: string) => void; // Callback to inform parent to load session
+}
+
+const ChevronRightIcon = () => <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-5 h-5"><path strokeLinecap="round" strokeLinejoin="round" d="M8.25 4.5l7.5 7.5-7.5 7.5" /></svg>;
+const LoadIcon = () => <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-4 h-4 mr-1"><path strokeLinecap="round" strokeLinejoin="round" d="M3 16.5v2.25A2.25 2.25 0 005.25 21h13.5A2.25 2.25 0 0021 18.75V16.5M16.5 12L12 16.5m0 0L7.5 12m4.5 4.5V3" /></svg>;
+const DeleteIcon = () => <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-4 h-4 mr-1"><path strokeLinecap="round" strokeLinejoin="round" d="M14.74 9l-.346 9m-4.788 0L9.26 9m9.968-3.21c.342.052.682.107 1.022.166m-1.022-.165L18.16 19.673a2.25 2.25 0 01-2.244 2.077H8.084a2.25 2.25 0 01-2.244-2.077L4.772 5.79m14.456 0a48.108 48.108 0 00-3.478-.397m-12.56 0c1.153 0 2.243.096 3.222.261m3.222.261L12 5.291M12 5.291L8.777 5.03M8.777 5.03l-.001-.001A48.716 48.716 0 013 5.291" /></svg>;
+
+
+const ChatContextSidebar: React.FC<ChatContextSidebarProps> = ({
+  onToggleCollapse,
+  files,
+  wcatCases,
+  selectedFileIds,
+  onToggleFileContext,
+  selectedWcatCaseIds,
+  onToggleWcatCaseContext,
+  onLoadSession,
+}) => {
+  const { savedChatSessions, deleteChatSession: deleteSessionFromContext, chatHistory } = useAppContext();
+  const [activeTab, setActiveTab] = useState<'evidence' | 'wcat' | 'history'>('evidence');
+  const [searchTermEvidence, setSearchTermEvidence] = useState('');
+  const [searchTermWcat, setSearchTermWcat] = useState('');
+  const [searchTermHistory, setSearchTermHistory] = useState('');
+
+
+  const filteredFiles = files.filter(f => 
+    f.name.toLowerCase().includes(searchTermEvidence.toLowerCase()) ||
+    (f.summary && f.summary.toLowerCase().includes(searchTermEvidence.toLowerCase()))
+  );
+
+  const filteredWcatCases = wcatCases.filter(c =>
+    c.decisionNumber.toLowerCase().includes(searchTermWcat.toLowerCase()) ||
+    c.aiSummary.toLowerCase().includes(searchTermWcat.toLowerCase()) ||
+    c.outcomeSummary.toLowerCase().includes(searchTermWcat.toLowerCase())
+  );
+
+  const filteredHistorySessions = savedChatSessions.filter(s =>
+    s.name.toLowerCase().includes(searchTermHistory.toLowerCase()) ||
+    s.messages.some(m => m.text.toLowerCase().includes(searchTermHistory.toLowerCase()))
+  );
+
+  const handleDragStart = (event: React.DragEvent<HTMLDivElement>, itemId: string, itemType: 'evidence' | 'wcat') => {
+    const data = JSON.stringify({ id: itemId, type: itemType });
+    event.dataTransfer.setData("application/json", data);
+    event.dataTransfer.effectAllowed = "copy";
+  };
+
+  const handleLoadSessionClick = (sessionId: string) => {
+    if (chatHistory.length > 0) {
+        if (!window.confirm("Loading a saved session will clear your current unsaved chat. Continue?")) {
+            return;
+        }
+    }
+    onLoadSession(sessionId);
+  };
+
+  const handleDeleteSessionClick = (sessionId: string) => {
+    if (window.confirm("Are you sure you want to delete this chat session? This action cannot be undone.")) {
+        deleteSessionFromContext(sessionId);
+    }
+  };
+
+  return (
+    <div className="fixed top-[calc(var(--header-height,64px)+1.5rem)] right-0 bottom-6 
+                   w-80 min-w-[320px] bg-surface p-4 border-l border-border 
+                   flex flex-col space-y-3 shadow-xl z-20 
+                   transform transition-transform duration-300 ease-in-out translate-x-0">
+      <div className="flex justify-between items-center">
+        <h3 className="text-lg font-semibold text-textPrimary">Chat Context & History</h3>
+        <button
+          onClick={onToggleCollapse}
+          className="p-2 text-textPrimary hover:bg-primary-light/20 rounded-md"
+          title="Close Context Sidebar"
+          aria-label="Close Context Sidebar"
+        >
+          <ChevronRightIcon />
+        </button>
+      </div>
+
+      <div className="flex border-b border-border">
+        <button
+          onClick={() => setActiveTab('evidence')}
+          className={`flex-1 py-2 text-sm font-medium ${activeTab === 'evidence' ? 'text-primary border-b-2 border-primary' : 'text-textSecondary hover:text-textPrimary'}`}
+        >
+          Evidence ({selectedFileIds.length})
+        </button>
+        <button
+          onClick={() => setActiveTab('wcat')}
+          className={`flex-1 py-2 text-sm font-medium ${activeTab === 'wcat' ? 'text-primary border-b-2 border-primary' : 'text-textSecondary hover:text-textPrimary'}`}
+        >
+          WCAT Cases ({selectedWcatCaseIds.length})
+        </button>
+        <button
+          onClick={() => setActiveTab('history')}
+          className={`flex-1 py-2 text-sm font-medium ${activeTab === 'history' ? 'text-primary border-b-2 border-primary' : 'text-textSecondary hover:text-textPrimary'}`}
+        >
+          History ({savedChatSessions.length})
+        </button>
+      </div>
+
+      <div className="flex-grow overflow-y-auto space-y-2 pr-1">
+        {activeTab === 'evidence' && (
+          <>
+            <input
+              type="text"
+              placeholder="Search evidence..."
+              value={searchTermEvidence}
+              onChange={(e) => setSearchTermEvidence(e.target.value)}
+              className="w-full px-3 py-1.5 bg-background border border-border rounded-md text-sm focus:ring-1 focus:ring-primary focus:border-primary"
+            />
+            {filteredFiles.length === 0 && <p className="text-xs text-textSecondary text-center py-2">No evidence files match.</p>}
+            {filteredFiles.map(file => (
+              <div
+                key={file.id}
+                draggable="true"
+                onDragStart={(e) => handleDragStart(e, file.id, 'evidence')}
+                onClick={() => onToggleFileContext(file.id)}
+                title={`Summary: ${file.summary || 'N/A'}\nTags: ${file.tags.map(t => t.name).join(', ') || 'None'}`}
+                className={`p-2 rounded-md cursor-grab text-sm border ${
+                  selectedFileIds.includes(file.id)
+                    ? 'bg-primary-light/20 border-primary text-primary font-medium'
+                    : 'bg-background hover:bg-gray-50 dark:hover:bg-gray-700 border-border text-textPrimary'
+                }`}
+              >
+                {file.name}
+              </div>
+            ))}
+          </>
+        )}
+
+        {activeTab === 'wcat' && (
+          <>
+            <input
+              type="text"
+              placeholder="Search WCAT cases..."
+              value={searchTermWcat}
+              onChange={(e) => setSearchTermWcat(e.target.value)}
+              className="w-full px-3 py-1.5 bg-background border border-border rounded-md text-sm focus:ring-1 focus:ring-primary focus:border-primary"
+            />
+            {filteredWcatCases.length === 0 && <p className="text-xs text-textSecondary text-center py-2">No WCAT cases match.</p>}
+            {filteredWcatCases.map(wcase => (
+              <div
+                key={wcase.id}
+                draggable="true"
+                onDragStart={(e) => handleDragStart(e, wcase.id, 'wcat')}
+                onClick={() => onToggleWcatCaseContext(wcase.id)}
+                title={`Outcome: ${wcase.outcomeSummary}\nKeywords: ${wcase.keywords.join(', ') || 'N/A'}`}
+                className={`p-2 rounded-md cursor-grab text-sm border ${
+                  selectedWcatCaseIds.includes(wcase.id)
+                    ? 'bg-primary-light/20 border-primary text-primary font-medium'
+                    : 'bg-background hover:bg-gray-50 dark:hover:bg-gray-700 border-border text-textPrimary'
+                }`}
+              >
+                {wcase.decisionNumber} ({wcase.year})
+              </div>
+            ))}
+          </>
+        )}
+
+        {activeTab === 'history' && (
+            <>
+                <input
+                    type="text"
+                    placeholder="Search saved sessions..."
+                    value={searchTermHistory}
+                    onChange={(e) => setSearchTermHistory(e.target.value)}
+                    className="w-full px-3 py-1.5 bg-background border border-border rounded-md text-sm focus:ring-1 focus:ring-primary focus:border-primary"
+                />
+                {filteredHistorySessions.length === 0 && <p className="text-xs text-textSecondary text-center py-2">No saved chat sessions match or none saved yet.</p>}
+                {filteredHistorySessions.map(session => (
+                    <div key={session.id} className="p-2 rounded-md border bg-background border-border text-sm">
+                        <p className="font-medium text-textPrimary truncate" title={session.name}>{session.name}</p>
+                        <p className="text-xs text-textSecondary">
+                            Saved: {new Date(session.timestamp).toLocaleDateString()} {new Date(session.timestamp).toLocaleTimeString()}
+                        </p>
+                        <p className="text-xs text-textSecondary">Messages: {session.messages.length}</p>
+                        <p className="text-xs text-textSecondary truncate" title={`Files: ${(session.relatedFileIds || []).length}, WCAT: ${(session.relatedWcatCaseIds || []).length}`}>
+                            Context: Files ({(session.relatedFileIds || []).length}), WCAT ({(session.relatedWcatCaseIds || []).length})
+                        </p>
+                        <div className="mt-1.5 flex space-x-2">
+                            <button 
+                                onClick={() => handleLoadSessionClick(session.id)}
+                                className="text-xs bg-secondary text-white px-2 py-1 rounded hover:bg-secondary-dark flex items-center"
+                            >
+                                <LoadIcon /> Load
+                            </button>
+                            <button 
+                                onClick={() => handleDeleteSessionClick(session.id)}
+                                className="text-xs bg-red-500 text-white px-2 py-1 rounded hover:bg-red-600 flex items-center"
+                            >
+                                <DeleteIcon /> Delete
+                            </button>
+                        </div>
+                    </div>
+                ))}
+            </>
+        )}
+      </div>
+       <p className="text-xs text-textSecondary text-center p-1">
+        Manage context items or load past chat sessions.
+      </p>
+    </div>
+  );
+};
+
+export default ChatContextSidebar;
