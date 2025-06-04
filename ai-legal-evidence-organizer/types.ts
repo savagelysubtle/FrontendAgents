@@ -1,4 +1,3 @@
-
 export interface EvidenceFile {
   id: string;
   name: string;
@@ -113,21 +112,21 @@ export interface WcatCase {
 export interface PolicyEntry {
   policyNumber: string;
   title?: string;
-  page?: number; 
+  page?: number;
   snippet?: string;
 }
 
 // Represents an entire policy manual document (e.g., a PDF)
 export interface PolicyManual {
-  id: string; 
-  manualName: string; 
-  sourceUrl?: string; 
-  mcpPath: string; 
-  version?: string; 
-  ingestedAt: string; 
-  rawTextContent?: string; 
+  id: string;
+  manualName: string;
+  sourceUrl?: string;
+  mcpPath: string;
+  version?: string;
+  ingestedAt: string;
+  rawTextContent?: string;
   policyEntries: PolicyEntry[];
-  isProcessing?: boolean; 
+  isProcessing?: boolean;
 }
 
 
@@ -167,11 +166,19 @@ export interface McpServerProcessConfig {
   args: string[];
   cwd?: string;
   env?: Record<string, string>;
-  description?: string; 
-  usageExample?: string; 
+  description?: string;
+  usageExample?: string;
 }
 export interface McpUserProvidedServers {
   mcpServers: Record<string, McpServerProcessConfig>;
+}
+
+// Interface for StdioClientTransport options, based on SDK usage
+export interface McpStdioOptions {
+  command: string; // The command to execute for the stdio server
+  args?: string[]; // Arguments for the command
+  cwd?: string; // Current working directory for the command
+  env?: Record<string, string>; // Environment variables for the command
 }
 
 // For mcp_api_configs.json (API connection configurations)
@@ -181,19 +188,21 @@ export interface McpApiEndpoints {
   writeFile: string;
   renameFile: string;
   deleteFileOrDirectory: string;
-  getDirectoryTree: string; 
-  batchRenameFiles: string; 
+  getDirectoryTree: string;
+  batchRenameFiles: string;
   createZip: string;
   addAllowedDirectory: string;
-  getServerStatus: string; 
+  getServerStatus: string;
 }
 
 export interface McpApiConfig {
   configName: string;
-  baseApiUrl: string;
-  endpoints: McpApiEndpoints;
+  baseApiUrl?: string; // Now optional, only used if transportType is 'http' or for older custom HTTP MCPs
+  endpoints?: McpApiEndpoints; // Optional: Relevant for non-SDK HTTP direct API calls
   requestTimeoutMs?: number;
   expectedServerVersion?: string;
+  transportType?: 'http' | 'stdio'; // Defines the transport mechanism for SDK-based clients
+  stdioOptions?: McpStdioOptions; // Options for stdio transport
 }
 
 // New type for AI Tools
@@ -204,7 +213,7 @@ export interface AiTool {
   type: 'mcp_process' | 'custom_abstract'; // 'mcp_process' derived from mcp.json, 'custom_abstract' user-defined
   usageExample?: string; // How to conceptually use the tool in chat
   // For mcp_process tools, we can store the original command details for reference, though client won't execute directly
-  mcpProcessDetails?: { 
+  mcpProcessDetails?: {
     command: string;
     args: string[];
     cwd?: string;
@@ -229,7 +238,27 @@ export interface AgUiFrontendToolDef {
 
 // Phase 5: DynamicMarker for Generative UI
 export interface DynamicMarker {
-  text: string;
-  type: string; // e.g., 'admission', 'contradiction', 'critical_quote'
-  page?: number; // Optional page number
+  id: string;
+  text: string; // The text to highlight or mark
+  type: 'highlight' | 'underline' | 'comment' | 'reference';
+  color?: string; // e.g., 'yellow-300', 'blue-500' for highlights
+  commentText?: string; // For comment type
+  referenceTarget?: { fileId?: string; wcatId?: string; policyId?: string }; // For reference type
+  uiElementId?: string; // ID of the UI element this marker is associated with (optional)
 }
+
+// Added for AI Folder Organization Feature
+export interface AiOrganizationSuggestion {
+  originalRelativePath: string; // Relative to the user's selected folder root (e.g., 'MyFolder/report.pdf')
+  newRelativePathInOrganizedFolder: string; // Relative to a new base path for the organized folder (e.g., 'Evidence/Financials/Q1_Report_Renamed.pdf')
+  // originalFile: File; // Could be useful to pass the original File object if needed later for content reading
+}
+
+export interface AiOrganizationPlan {
+  newMcpBaseDirectory: string; // e.g., /uploads/Case_123_Organized - this is the root for the new structure on MCP
+  directoriesToCreateOnMcp: string[]; // Full MCP paths to create, e.g., ['/uploads/Case_123_Organized/Evidence']
+  fileOperations: AiOrganizationSuggestion[];
+  aiRationale?: string;
+}
+
+export type AuditLogStatusType = 'info' | 'success' | 'warning' | 'error';

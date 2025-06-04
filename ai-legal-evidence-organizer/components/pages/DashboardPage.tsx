@@ -1,11 +1,10 @@
-
 import React, { useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { useAppContext } from '../../contexts/AppContext';
 import { EvidenceFile } from '../../types';
 
 const StatCard: React.FC<{ title: string; value: string | number; icon: React.ReactNode; linkTo?: string }> = ({ title, value, icon, linkTo }) => (
-  <div className="bg-surface p-6 rounded-lg shadow-lg border border-border hover:shadow-xl transition-shadow">
+  <div className="bg-surface p-6 rounded-lg shadow-modern-md dark:shadow-modern-md-dark border border-border hover:shadow-modern-lg dark:hover:shadow-modern-lg transition-shadow">
     <div className="flex items-center justify-between">
       <div>
         <p className="text-sm font-medium text-textSecondary">{title}</p>
@@ -38,12 +37,12 @@ const DashboardPage: React.FC = () => {
   const [compareWcatCaseId, setCompareWcatCaseId] = useState<string>('');
 
 
-  const recentFiles = files.slice(0, 5).sort((a, b) => 
-    new Date(b.metadata.modifiedAt || b.metadata.createdAt || 0).getTime() - 
+  const recentFiles = files.slice(0, 5).sort((a, b) =>
+    new Date(b.metadata.modifiedAt || b.metadata.createdAt || 0).getTime() -
     new Date(a.metadata.modifiedAt || a.metadata.createdAt || 0).getTime()
   );
 
-  const flaggedEvidence = files.filter(f => 
+  const flaggedEvidence = files.filter(f =>
     f.tags.some(t => ['admission', 'contradiction', 'omission'].includes(t.criteria || ''))
   ).slice(0,5);
 
@@ -61,7 +60,7 @@ const DashboardPage: React.FC = () => {
   return (
     <div className="p-6 space-y-6">
       <h2 className="text-3xl font-semibold text-textPrimary">Dashboard</h2>
-      
+
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
         <StatCard title="Total Evidence Files" value={files.length} icon={<FileIcon />} linkTo="/viewer" />
         <StatCard title="WCAT Precedents" value={wcatCases.length} icon={<WcatDbIcon />} linkTo="/wcat-database" />
@@ -69,7 +68,7 @@ const DashboardPage: React.FC = () => {
         <StatCard title="Recent Activities" value={auditLog.length > 0 ? auditLog.length : "0"} icon={<ActivityIcon />} linkTo="/settings" />
       </div>
 
-      <div className="bg-surface p-6 rounded-lg shadow-lg border border-border">
+      <div className="bg-surface p-6 rounded-lg shadow-modern-md dark:shadow-modern-md-dark border border-border">
         <div className="flex items-center mb-4">
           <div className="text-primary p-2 bg-primary-light/20 rounded-full mr-3">
             <CompareIcon />
@@ -80,9 +79,9 @@ const DashboardPage: React.FC = () => {
           <div className="grid grid-cols-1 md:grid-cols-3 gap-4 items-end">
             <div className="md:col-span-1">
               <label htmlFor="compare-evidence" className="block text-sm font-medium text-textSecondary">Evidence File</label>
-              <select 
-                id="compare-evidence" 
-                value={compareEvidenceFileId} 
+              <select
+                id="compare-evidence"
+                value={compareEvidenceFileId}
                 onChange={(e) => setCompareEvidenceFileId(e.target.value)}
                 className="mt-1 block w-full px-3 py-2 bg-background border border-border rounded-md shadow-sm focus:outline-none focus:ring-primary focus:border-primary sm:text-sm"
               >
@@ -92,9 +91,9 @@ const DashboardPage: React.FC = () => {
             </div>
             <div className="md:col-span-1">
               <label htmlFor="compare-wcat" className="block text-sm font-medium text-textSecondary">WCAT Case</label>
-              <select 
-                id="compare-wcat" 
-                value={compareWcatCaseId} 
+              <select
+                id="compare-wcat"
+                value={compareWcatCaseId}
                 onChange={(e) => setCompareWcatCaseId(e.target.value)}
                 className="mt-1 block w-full px-3 py-2 bg-background border border-border rounded-md shadow-sm focus:outline-none focus:ring-primary focus:border-primary sm:text-sm"
               >
@@ -121,7 +120,7 @@ const DashboardPage: React.FC = () => {
 
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-        <div className="lg:col-span-1 bg-surface p-6 rounded-lg shadow-lg border border-border">
+        <div className="lg:col-span-1 bg-surface p-6 rounded-lg shadow-modern-md dark:shadow-modern-md-dark border border-border">
           <h3 className="text-xl font-semibold text-textPrimary mb-4">Recently Added WCAT Cases</h3>
           {recentWcatCases.length > 0 ? (
             <ul className="space-y-3">
@@ -138,8 +137,8 @@ const DashboardPage: React.FC = () => {
             <p className="text-textSecondary">No WCAT cases in database. <Link to="/wcat-search" className="text-primary hover:underline">Add some precedents</Link>.</p>
           )}
         </div>
-        
-        <div className="lg:col-span-1 bg-surface p-6 rounded-lg shadow-lg border border-border">
+
+        <div className="lg:col-span-1 bg-surface p-6 rounded-lg shadow-modern-md dark:shadow-modern-md-dark border border-border">
           <h3 className="text-xl font-semibold text-textPrimary mb-4">Recent Evidence Files</h3>
           {recentFiles.length > 0 ? (
             <ul className="space-y-3">
@@ -155,7 +154,7 @@ const DashboardPage: React.FC = () => {
           )}
         </div>
 
-        <div className="lg:col-span-1 bg-surface p-6 rounded-lg shadow-lg border border-border">
+        <div className="lg:col-span-1 bg-surface p-6 rounded-lg shadow-modern-md dark:shadow-modern-md-dark border border-border">
           <h3 className="text-xl font-semibold text-textPrimary mb-4">Flagged Evidence</h3>
           {flaggedEvidence.length > 0 ? (
             <ul className="space-y-3">
@@ -175,8 +174,8 @@ const DashboardPage: React.FC = () => {
           )}
         </div>
       </div>
-      
-      <div className="bg-surface p-6 rounded-lg shadow-lg border border-border">
+
+      <div className="bg-surface p-6 rounded-lg shadow-modern-md dark:shadow-modern-md-dark border border-border">
         <h3 className="text-xl font-semibold text-textPrimary mb-4">Quick Actions</h3>
         <div className="flex flex-wrap gap-4">
           <Link to="/ingestion" className="bg-primary text-white px-4 py-2 rounded-lg hover:bg-primary-dark transition-colors">

@@ -1,4 +1,3 @@
-
 import React, { ReactNode } from 'react';
 
 interface ModalProps {
@@ -13,18 +12,18 @@ const Modal: React.FC<ModalProps> = ({ isOpen, onClose, title, children, footer 
   if (!isOpen) return null;
 
   return (
-    <div 
+    <div
       className="fixed inset-0 z-50 flex items-center justify-center bg-black bg-opacity-50 backdrop-blur-sm"
       onClick={onClose}
     >
-      <div 
-        className="bg-surface rounded-lg shadow-xl p-6 w-full max-w-lg max-h-[90vh] flex flex-col"
+      <div
+        className="bg-surface rounded-lg shadow-modern-lg dark:shadow-modern-md-dark p-6 w-full max-w-lg max-h-[90vh] flex flex-col"
         onClick={(e) => e.stopPropagation()} // Prevent click inside modal from closing it
       >
         <div className="flex justify-between items-center pb-3 border-b border-border">
           <h3 className="text-xl font-semibold text-textPrimary">{title}</h3>
-          <button 
-            onClick={onClose} 
+          <button
+            onClick={onClose}
             className="text-textSecondary hover:text-textPrimary transition-colors"
             aria-label="Close modal"
           >
@@ -47,4 +46,3 @@ const Modal: React.FC<ModalProps> = ({ isOpen, onClose, title, children, footer 
 };
 
 export default Modal;
-    

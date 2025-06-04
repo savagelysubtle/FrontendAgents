@@ -1,4 +1,3 @@
-
 import React from 'react';
 import { useAppContext } from '../contexts/AppContext';
 import { Theme } from '../types';
@@ -24,7 +23,35 @@ const MenuIcon: React.FC<{ className?: string }> = ({ className }) => (
 
 
 const Header: React.FC = () => {
-  const { theme, toggleTheme, currentError, toggleMainSidebar, isMainSidebarCollapsed } = useAppContext();
+  const { theme, toggleTheme, currentError, toggleMainSidebar, isMainSidebarCollapsed, mcpServerStatus } = useAppContext();
+
+  const getMcpStatusIndicator = () => {
+    if (!mcpServerStatus) return null;
+
+    let color = 'bg-yellow-500'; // Default to yellow for initializing or unknown states
+    let titleText = `MCP Server: ${mcpServerStatus.error || 'Initializing...'}`;
+
+    if (mcpServerStatus.isRunning) {
+      color = 'bg-green-500';
+      titleText = `MCP Server: Running (Version: ${mcpServerStatus.version || 'Unknown'})`;
+    } else if (mcpServerStatus.error && !mcpServerStatus.isRunning) {
+      color = 'bg-red-500';
+      titleText = `MCP Server Error: ${mcpServerStatus.error}`;
+    } else if (!mcpServerStatus.isRunning) {
+      // Still yellow, but potentially different message if error is empty
+      titleText = `MCP Server: Not Running (Status: ${mcpServerStatus.error || 'Not Connected'})`;
+    }
+
+
+    return (
+      <div className="flex items-center space-x-2" title={titleText}>
+        <span className={`w-3 h-3 rounded-full ${color}`}></span>
+        <span className="text-xs text-textSecondary hidden sm:inline">
+          {mcpServerStatus.isRunning ? `MCP: Online` : (mcpServerStatus.error ? 'MCP: Error' : 'MCP: Offline')}
+        </span>
+      </div>
+    );
+  };
 
   return (
     <header className="bg-surface shadow-md p-4 sticky top-0 z-40 border-b border-border">
@@ -40,6 +67,7 @@ const Header: React.FC = () => {
             <h1 className="text-2xl font-bold text-primary">{APP_NAME}</h1>
         </div>
         <div className="flex items-center space-x-4">
+          {getMcpStatusIndicator()}
           {currentError && (
             <div className="text-red-500 text-xs p-1 bg-red-100 dark:bg-red-900 dark:text-red-300 rounded border border-red-500 max-w-xs truncate" title={currentError}>
               <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-4 h-4 inline mr-1">

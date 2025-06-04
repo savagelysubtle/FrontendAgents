@@ -1,22 +1,23 @@
-import React, { useState } from 'react';
-import { EvidenceFile, WcatCase, SavedChatSession, AiTool } from '../../types';
-import { useAppContext } from '../../contexts/AppContext'; 
+import React, { useState, useEffect } from 'react';
+import { EvidenceFile, WcatCase, SavedChatSession, AiTool as AppAgUiToolDef } from '../../types';
+import { useAppContext } from '../../contexts/AppContext';
 import Modal from './Modal'; // Assuming Modal component exists
 import LoadingSpinner from './LoadingSpinner';
+import { Tool as McpServerToolDef } from "@modelcontextprotocol/sdk/types.js"; // For MCP server tools
 
 interface ChatContextSidebarProps {
-  onToggleCollapse: () => void; 
+  onToggleCollapse: () => void;
   files: EvidenceFile[];
   wcatCases: WcatCase[];
   selectedFileIds: string[];
   onToggleFileContext: (fileId: string) => void; // Removed forceAdd
   selectedWcatCaseIds: string[];
   onToggleWcatCaseContext: (caseId: string) => void; // Removed forceAdd
-  onLoadSession: (sessionId: string) => void; 
-  
-  tools: AiTool[]; // Added for tools tab
-  selectedToolIds: string[]; // Added for tools tab
-  onToggleToolContext: (toolId: string) => void; // Added for tools tab
+  onLoadSession: (sessionId: string) => void;
+
+  tools: AppAgUiToolDef[]; // Use AppAgUiToolDef. Prop name was 'tools'
+  selectedToolIds: string[]; // Prop name was 'selectedToolIds'
+  onToggleToolContext: (toolId: string) => void; // Prop name was 'onToggleToolContext'
 }
 
 const ChevronRightIcon = () => <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-5 h-5"><path strokeLinecap="round" strokeLinejoin="round" d="M8.25 4.5l7.5 7.5-7.5 7.5" /></svg>;
@@ -38,20 +39,35 @@ const ChatContextSidebar: React.FC<ChatContextSidebarProps> = ({
   selectedToolIds, // New prop
   onToggleToolContext, // New prop
 }) => {
-  const { savedChatSessions, deleteChatSession: deleteSessionFromContext, chatHistory, addTool, deleteTool: deleteCustomTool, isLoading } = useAppContext();
+  const {
+    savedChatSessions,
+    deleteChatSession: deleteSessionFromContext,
+    chatHistory,
+    addTool,
+    deleteTool: deleteCustomTool,
+    isLoading,
+    mcpClient, // Added from AppContext
+    isMcpClientLoading, // Added from AppContext
+    addAuditLogEntry, // Added from AppContext
+    setError // Added from AppContext
+  } = useAppContext();
   const [activeTab, setActiveTab] = useState<'evidence' | 'wcat' | 'tools' | 'history'>('evidence');
   const [searchTermEvidence, setSearchTermEvidence] = useState('');
   const [searchTermWcat, setSearchTermWcat] = useState('');
   const [searchTermTools, setSearchTermTools] = useState('');
   const [searchTermHistory, setSearchTermHistory] = useState('');
-  
+
   const [isAddToolModalOpen, setIsAddToolModalOpen] = useState(false);
   const [newToolName, setNewToolName] = useState('');
   const [newToolDescription, setNewToolDescription] = useState('');
   const [newToolUsageExample, setNewToolUsageExample] = useState('');
 
+  // State for MCP Server Tools
+  const [mcpServerTools, setMcpServerTools] = useState<McpServerToolDef[]>([]);
+  const [isLoadingMcpTools, setIsLoadingMcpTools] = useState<boolean>(false);
 
-  const filteredFiles = files.filter(f => 
+
+  const filteredFiles = files.filter(f =>
     f.name.toLowerCase().includes(searchTermEvidence.toLowerCase()) ||
     (f.summary && f.summary.toLowerCase().includes(searchTermEvidence.toLowerCase()))
   );
@@ -61,7 +77,7 @@ const ChatContextSidebar: React.FC<ChatContextSidebarProps> = ({
     c.aiSummary.toLowerCase().includes(searchTermWcat.toLowerCase()) ||
     c.outcomeSummary.toLowerCase().includes(searchTermWcat.toLowerCase())
   );
-  
+
   const filteredTools = tools.filter(t =>
     t.name.toLowerCase().includes(searchTermTools.toLowerCase()) ||
     t.description.toLowerCase().includes(searchTermTools.toLowerCase()) ||
@@ -93,7 +109,7 @@ const ChatContextSidebar: React.FC<ChatContextSidebarProps> = ({
         deleteSessionFromContext(sessionId);
     }
   };
-  
+
   const handleAddCustomTool = () => {
     if (newToolName.trim() && newToolDescription.trim()) {
         addTool({
@@ -115,14 +131,39 @@ const ChatContextSidebar: React.FC<ChatContextSidebarProps> = ({
             deleteCustomTool(toolId);
         }
      } else if (toolToDelete) {
-         alert(`Tool "${toolToDelete.name}" is derived from mcp.json and cannot be deleted from this UI.`);
+         alert(`Tool "${toolToDelete.name}" is of type '${toolToDelete.type}' and cannot be deleted from this UI.`);
      }
   };
 
+  useEffect(() => {
+    const fetchMcpTools = async () => {
+      if (mcpClient && mcpClient.ready) {
+        setIsLoadingMcpTools(true);
+        try {
+          const toolsResult = await mcpClient.listMcpTools();
+          setMcpServerTools(toolsResult || []);
+          addAuditLogEntry('MCP_TOOLS_FETCHED_SIDEBAR', `Fetched ${toolsResult?.length || 0} tools from MCP server.`);
+        } catch (error: any) {
+          setError(`Failed to fetch MCP server tools: ${error.message}`);
+          setMcpServerTools([]);
+          addAuditLogEntry('MCP_TOOLS_FETCH_ERROR_SIDEBAR', `Error: ${error.message}`);
+        } finally {
+          setIsLoadingMcpTools(false);
+        }
+      } else {
+        setMcpServerTools([]);
+      }
+    };
+
+    if (!isMcpClientLoading) {
+      fetchMcpTools();
+    }
+  }, [mcpClient, mcpClient?.ready, isMcpClientLoading, setError, addAuditLogEntry]);
+
   return (
-    <div className="fixed top-[calc(var(--header-height,64px)+1.5rem)] right-0 bottom-6 
-                   w-80 min-w-[320px] bg-surface p-4 border-l border-border 
-                   flex flex-col space-y-3 shadow-xl z-20 
+    <div className="fixed top-[calc(var(--header-height,64px)+1.5rem)] right-0 bottom-6
+                   w-80 min-w-[320px] bg-surface p-4 border-l border-border
+                   flex flex-col space-y-3 shadow-xl z-20
                    transform transition-transform duration-300 ease-in-out translate-x-0">
       <div className="flex justify-between items-center">
         <h3 className="text-lg font-semibold text-textPrimary">Chat Context & Tools</h3>
@@ -143,7 +184,7 @@ const ChatContextSidebar: React.FC<ChatContextSidebarProps> = ({
                 onClick={() => setActiveTab(tabName)}
                 className={`flex-1 py-2 text-xs sm:text-sm font-medium ${activeTab === tabName ? 'text-primary border-b-2 border-primary' : 'text-textSecondary hover:text-textPrimary'}`}
             >
-                {tabName.charAt(0).toUpperCase() + tabName.slice(1)} 
+                {tabName.charAt(0).toUpperCase() + tabName.slice(1)}
                 {tabName === 'evidence' && ` (${selectedFileIds.length})`}
                 {tabName === 'wcat' && ` (${selectedWcatCaseIds.length})`}
                 {tabName === 'tools' && ` (${selectedToolIds.length})`}
@@ -210,49 +251,82 @@ const ChatContextSidebar: React.FC<ChatContextSidebarProps> = ({
             ))}
           </>
         )}
-        
+
         {activeTab === 'tools' && (
             <>
-                <div className="flex justify-between items-center mb-1">
-                    <input
-                        type="text"
-                        placeholder="Search tools..."
-                        value={searchTermTools}
-                        onChange={(e) => setSearchTermTools(e.target.value)}
-                        className="flex-grow mr-2 px-3 py-1.5 bg-background border border-border rounded-md text-sm focus:ring-1 focus:ring-primary focus:border-primary"
-                    />
-                    <button 
-                        onClick={() => setIsAddToolModalOpen(true)}
-                        className="text-xs bg-secondary text-white px-2 py-1 rounded-md hover:bg-secondary-dark flex items-center whitespace-nowrap"
-                        title="Add a new custom abstract tool"
-                    >
-                       <PlusIcon /> Add Custom
-                    </button>
+                <input
+                    type="text"
+                    placeholder="Search all tools..."
+                    value={searchTermTools}
+                    onChange={(e) => setSearchTermTools(e.target.value)}
+                    className="w-full px-3 py-1.5 bg-background border border-border rounded-md text-sm focus:ring-1 focus:ring-primary focus:border-primary mb-3"
+                />
+
+                {/* MCP Server Tools Section */}
+                <h4 className="text-xs font-semibold text-textSecondary uppercase tracking-wider mt-3 mb-1">
+                  MCP Server Tools (from connected server)
+                </h4>
+                {isMcpClientLoading && <LoadingSpinner size="sm" message="Checking MCP client..." />}
+                {!isMcpClientLoading && (!mcpClient || !mcpClient.ready) && (
+                  <p className="text-xs text-red-500 p-2 bg-red-50 dark:bg-red-900 border border-red-200 dark:border-red-700 rounded-md">MCP Client not ready or not connected. Server tools unavailable. Error: {mcpClient?.getInitializationError() || 'Unknown'}</p>
+                )}
+                {!isMcpClientLoading && mcpClient && mcpClient.ready && isLoadingMcpTools && (
+                  <LoadingSpinner size="sm" message="Loading server tools..." />
+                )}
+                {!isMcpClientLoading && mcpClient && mcpClient.ready && !isLoadingMcpTools && mcpServerTools.length === 0 && (
+                  <p className="text-xs text-textSecondary p-2 bg-gray-50 dark:bg-gray-700 border border-gray-200 dark:border-gray-600 rounded-md">No tools found on the connected MCP server: {mcpClient.getConfiguredServerName()}</p>
+                )}
+                {!isLoadingMcpTools && mcpServerTools.filter(tool => tool.name.toLowerCase().includes(searchTermTools.toLowerCase()) || (tool.description && tool.description.toLowerCase().includes(searchTermTools.toLowerCase()))).map((tool: McpServerToolDef) => (
+                  <div
+                    key={tool.name}
+                    title={`${tool.description}\\nInput Schema: ${JSON.stringify(tool.inputSchema).substring(0,100)}...`}
+                    className={`p-2 rounded-md text-sm border bg-gray-100 dark:bg-gray-700 border-gray-300 dark:border-gray-600 text-textPrimary mb-1 opacity-75 cursor-not-allowed`}
+                  >
+                    <div className="flex justify-between items-center">
+                      <span className="font-medium">{tool.name}</span>
+                      <div className="flex gap-1">
+                        {tool.annotations?.readOnlyHint && <span className="text-xs bg-green-100 text-green-700 px-1.5 py-0.5 rounded-full">Read-Only</span>}
+                        {tool.annotations?.destructiveHint && <span className="text-xs bg-red-100 text-red-700 px-1.5 py-0.5 rounded-full">Destructive</span>}
+                      </div>
+                    </div>
+                    <p className="text-xs text-textSecondary truncate mt-0.5">{tool.description || "No description."}</p>
+                  </div>
+                ))}
+
+                {/* Frontend AG-UI Tools Section (Your Custom Abstract Tools) */}
+                <div className="flex justify-between items-center mt-4 mb-1">
+                  <h4 className="text-xs font-semibold text-textSecondary uppercase tracking-wider">
+                    Frontend AG-UI Tools (custom actions)
+                  </h4>
+                  <button
+                    onClick={() => setIsAddToolModalOpen(true)}
+                    className="text-xs bg-secondary text-white px-2 py-1 rounded-md hover:bg-secondary-dark flex items-center whitespace-nowrap"
+                    title="Add a new custom abstract tool for the AI to use"
+                  >
+                    <PlusIcon /> Add Custom
+                  </button>
                 </div>
-                {filteredTools.length === 0 && <p className="text-xs text-textSecondary text-center py-2">No tools match or defined.</p>}
-                {filteredTools.map(tool => (
+                {tools.filter(t => t.type === 'custom_abstract' && (t.name.toLowerCase().includes(searchTermTools.toLowerCase()) || t.description.toLowerCase().includes(searchTermTools.toLowerCase()) || (t.usageExample && t.usageExample.toLowerCase().includes(searchTermTools.toLowerCase())))).length === 0 && <p className="text-xs text-textSecondary text-center py-2">No custom AG-UI tools defined or match search.</p>}
+                {tools
+                  .filter(t => t.type === 'custom_abstract' && (t.name.toLowerCase().includes(searchTermTools.toLowerCase()) || t.description.toLowerCase().includes(searchTermTools.toLowerCase()) || (t.usageExample && t.usageExample.toLowerCase().includes(searchTermTools.toLowerCase()))))
+                  .map((tool: AppAgUiToolDef) => (
                   <div
                     key={tool.id}
-                    draggable={tool.type === 'custom_abstract'} 
-                    onDragStart={(e) => tool.type === 'custom_abstract' && handleDragStart(e, tool.id, 'tool')}
-                    className={`p-2 rounded-md text-sm border ${
+                    draggable={true}
+                    onDragStart={(e) => handleDragStart(e, tool.id, 'tool')}
+                    onClick={() => onToggleToolContext(tool.id)}
+                    title={`${tool.description}\\nUsage Example: ${tool.usageExample || 'N/A'}`}
+                    className={`p-2 rounded-md cursor-grab text-sm border ${
                       selectedToolIds.includes(tool.id)
                         ? 'bg-primary-light/20 border-primary text-primary font-medium'
-                        : 'bg-background border-border text-textPrimary'
+                        : 'bg-background hover:bg-gray-50 dark:hover:bg-gray-700 border-border text-textPrimary'
                     }`}
                   >
                     <div className="flex justify-between items-start">
-                        <div 
-                          onClick={() => onToggleToolContext(tool.id)} 
-                          className="font-medium cursor-pointer hover:opacity-80 flex-grow" 
-                          title={`${tool.description}${tool.usageExample ? `\nUsage Example: ${tool.usageExample}` : ''}${tool.type === 'mcp_process' && tool.mcpProcessDetails ? `\n(MCP Process: ${tool.mcpProcessDetails.command} ${tool.mcpProcessDetails.args.join(' ')})` : ''}`}
-                        >
-                            {tool.name} <span className="text-xs opacity-70">({tool.type === 'mcp_process' ? 'MCP Process' : 'Custom'})</span>
-                        </div>
-                        {tool.type === 'custom_abstract' && (
-                            <button onClick={() => handleDeleteCustomToolClick(tool.id)} className="text-red-500 hover:text-red-700 text-xs ml-2 p-0.5" title="Delete custom tool">&times;</button>
-                        )}
+                        <span className="font-medium">{tool.name}</span>
+                        <button onClick={(e) => { e.stopPropagation(); handleDeleteCustomToolClick(tool.id); }} className="text-red-500 hover:text-red-700 text-xs ml-2 p-0.5" title="Delete custom tool">&times;</button>
                     </div>
+                    <p className="text-xs text-textSecondary truncate mt-0.5">{tool.description}</p>
                   </div>
                 ))}
             </>
@@ -279,13 +353,13 @@ const ChatContextSidebar: React.FC<ChatContextSidebarProps> = ({
                             Context: Files ({(session.relatedFileIds || []).length}), WCAT ({(session.relatedWcatCaseIds || []).length}), Tools ({(session.relatedToolIds || []).length})
                         </p>
                         <div className="mt-1.5 flex space-x-2">
-                            <button 
+                            <button
                                 onClick={() => handleLoadSessionClick(session.id)}
                                 className="text-xs bg-secondary text-white px-2 py-1 rounded hover:bg-secondary-dark flex items-center"
                             >
                                 <LoadIcon /> Load
                             </button>
-                            <button 
+                            <button
                                 onClick={() => handleDeleteSessionClick(session.id)}
                                 className="text-xs bg-red-500 text-white px-2 py-1 rounded hover:bg-red-600 flex items-center"
                             >
@@ -300,7 +374,7 @@ const ChatContextSidebar: React.FC<ChatContextSidebarProps> = ({
        <p className="text-xs text-textSecondary text-center p-1">
         Manage context items, tools, or load past chat sessions.
       </p>
-      
+
       <Modal title="Add Custom AI Tool" isOpen={isAddToolModalOpen} onClose={() => setIsAddToolModalOpen(false)}
         footer={
             <div className="flex justify-end gap-2">
@@ -319,7 +393,7 @@ const ChatContextSidebar: React.FC<ChatContextSidebarProps> = ({
             </div>
             <div>
                 <label htmlFor="newToolDescription" className="block text-xs font-medium text-textSecondary">Description* (for AI)</label>
-                <textarea id="newToolDescription" value={newToolDescription} onChange={e => setNewToolDescription(e.target.value)} rows={3} placeholder="Describe what this tool does or represents, for the AI's understanding."
+                <textarea id="newToolDescription" value={newToolDescription} onChange={e => setNewToolDescription(e.target.value)} rows={3} placeholder="Describe what this tool does or represents, for the AI's understanding. This is for custom abstract tools."
                     className="mt-0.5 w-full px-2 py-1.5 bg-background border border-border rounded-md"/>
             </div>
             <div>

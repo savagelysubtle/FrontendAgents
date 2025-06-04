@@ -1,20 +1,22 @@
-
 import { DirectoryNode, McpServerStatus, McpApiConfig } from '../types';
 import { v4 as uuidv4 } from 'uuid';
 import {
   Client as McpSDKClient,
 } from "@modelcontextprotocol/sdk/client/index.js";
-import { StreamableHttpClientTransport } from "@modelcontextprotocol/sdk/transport/index.js"; 
+import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
+import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
 
 import type {
   ListResourcesResult,
   ReadResourceResult,
-  CallToolResult,
+  // CallToolResult, // Removed as it's unused
   // ServerInfo, // Removed: Will use LocalServerInfo
   Resource as McpResource,
   ClientCapabilities,
   // ClientInfo, // Removed: Will use LocalClientInfo
   // ClientConfig, // Removed: Will use LocalClientConfig
+  Tool as McpServerToolDef, // Added for listMcpTools
+  // ListToolsResult // Also unused, can remain commented
 } from "@modelcontextprotocol/sdk/types.js";
 
 
@@ -27,19 +29,19 @@ interface LocalServerInfo {
 interface LocalClientInfo {
   name: string;
   version: string;
+  [key: string]: unknown; // Added to satisfy SDK Client constructor
 }
 
 interface LocalClientConfig {
   clientInformation: LocalClientInfo;
   clientCapabilities: ClientCapabilities; // Assuming ClientCapabilities is correctly imported
-  [key: string]: any; // Added index signature
 }
 
 
 export class McpClient {
   private apiConfig: McpApiConfig | null = null;
   private sdkClient: McpSDKClient | null = null;
-  private activeTransport: StreamableHttpClientTransport | null = null; 
+  private activeTransport: StreamableHTTPClientTransport | StdioClientTransport | null = null; // Union type
 
   private initialized: boolean = false;
   private initializationError: string | null = null;
@@ -50,9 +52,9 @@ export class McpClient {
   }
 
   public async initialize(apiConfig: McpApiConfig | null): Promise<void> {
-    if (this.sdkClient) { 
+    if (this.sdkClient) {
       try {
-        await this.sdkClient.close(); 
+        await this.sdkClient.close();
         this.addAuditLog('MCP_SDK_CLIENT_DISCONNECTED', 'Previous MCP SDK client closed.');
       } catch (e: any) {
         this.addAuditLog('MCP_SDK_CLIENT_DISCONNECT_ERROR', `Error closing previous MCP SDK client: ${e.message}`);
@@ -60,7 +62,7 @@ export class McpClient {
     }
     this.sdkClient = null;
     this.activeTransport = null;
-    this.initialized = false; 
+    this.initialized = false;
 
     if (!apiConfig) {
       this.apiConfig = null;
@@ -71,51 +73,80 @@ export class McpClient {
     }
 
     this.apiConfig = apiConfig;
-    this.initializationError = null; 
+    this.initializationError = null;
 
-    if (!this.apiConfig.baseApiUrl || typeof this.apiConfig.baseApiUrl !== 'string' || this.apiConfig.baseApiUrl.trim() === '') {
-        this.initializationError = `MCP SDK Client initialization failed: baseApiUrl is missing or invalid in API config "${apiConfig.configName}".`;
-        this.addAuditLog('MCP_SDK_CLIENT_INIT_ERROR_NO_BASE_URL', this.initializationError);
+    // Determine transport type, default to 'http'
+    const transportType = this.apiConfig.transportType || 'http';
+
+    if (transportType === 'http') {
+      if (!this.apiConfig.baseApiUrl || typeof this.apiConfig.baseApiUrl !== 'string' || this.apiConfig.baseApiUrl.trim() === '') {
+          this.initializationError = `MCP SDK Client (HTTP) initialization failed: baseApiUrl is missing or invalid in API config "${apiConfig.configName}".`;
+          this.addAuditLog('MCP_SDK_CLIENT_INIT_ERROR_NO_BASE_URL', this.initializationError);
+          console.error(this.initializationError);
+          this.initialized = false;
+          return;
+      }
+      try {
+          new URL(this.apiConfig.baseApiUrl);
+      } catch (urlError: any) {
+          this.initializationError = `MCP SDK Client (HTTP) initialization failed: Invalid baseApiUrl "${this.apiConfig.baseApiUrl}" in API config "${apiConfig.configName}": ${urlError.message}`;
+          this.addAuditLog('MCP_SDK_CLIENT_INIT_ERROR_INVALID_BASE_URL', this.initializationError);
+          console.error(this.initializationError);
+          this.initialized = false;
+          return;
+      }
+    } else if (transportType === 'stdio') {
+      if (!this.apiConfig.stdioOptions || typeof this.apiConfig.stdioOptions.command !== 'string' || this.apiConfig.stdioOptions.command.trim() === '') {
+        this.initializationError = `MCP SDK Client (stdio) initialization failed: stdioOptions.command is missing or invalid in API config "${apiConfig.configName}".`;
+        this.addAuditLog('MCP_SDK_CLIENT_INIT_ERROR_NO_STDIO_COMMAND', this.initializationError);
         console.error(this.initializationError);
         this.initialized = false;
         return;
+      }
+    } else {
+      this.initializationError = `MCP SDK Client initialization failed: Unknown transportType "${transportType}" in API config "${apiConfig.configName}".`;
+      this.addAuditLog('MCP_SDK_CLIENT_INIT_ERROR_UNKNOWN_TRANSPORT', this.initializationError);
+      console.error(this.initializationError);
+      this.initialized = false;
+      return;
     }
 
-    try {
-        new URL(this.apiConfig.baseApiUrl); 
-    } catch (urlError: any) {
-        this.initializationError = `MCP SDK Client initialization failed: Invalid baseApiUrl "${this.apiConfig.baseApiUrl}" in API config "${apiConfig.configName}": ${urlError.message}`;
-        this.addAuditLog('MCP_SDK_CLIENT_INIT_ERROR_INVALID_BASE_URL', this.initializationError);
-        console.error(this.initializationError);
-        this.initialized = false;
-        return;
-    }
 
-    const clientInfo: LocalClientInfo = { name: "AIOrganizerClient", version: "1.0.0" }; // Use LocalClientInfo
+    const clientInfo: LocalClientInfo = { name: "AIOrganizerClient", version: "1.0.0" };
     const clientCapabilities: ClientCapabilities = {
-      roots: { list: true }, 
+      roots: { list: true },
     };
-    
+
     const clientOptions: LocalClientConfig = { // Use LocalClientConfig
         clientInformation: clientInfo,
         clientCapabilities: clientCapabilities,
     };
 
     try {
-      this.activeTransport = new StreamableHttpClientTransport(new URL(this.apiConfig.baseApiUrl));
-      
-      this.sdkClient = new McpSDKClient(clientOptions);
-      
-      this.addAuditLog('MCP_SDK_CLIENT_CONNECT_ATTEMPT', `Attempting to connect MCP SDK Client to ${this.apiConfig.baseApiUrl} for ${apiConfig.configName}.`);
+      if (transportType === 'http' && this.apiConfig.baseApiUrl) {
+        this.activeTransport = new StreamableHTTPClientTransport(new URL(this.apiConfig.baseApiUrl));
+        this.addAuditLog('MCP_SDK_CLIENT_CONNECT_ATTEMPT', `Attempting to connect MCP SDK Client (HTTP) to ${this.apiConfig.baseApiUrl} for ${apiConfig.configName}.`);
+      } else if (transportType === 'stdio' && this.apiConfig.stdioOptions) {
+        this.activeTransport = new StdioClientTransport(this.apiConfig.stdioOptions);
+        this.addAuditLog('MCP_SDK_CLIENT_CONNECT_ATTEMPT', `Attempting to connect MCP SDK Client (stdio) with command "${this.apiConfig.stdioOptions.command}" for ${apiConfig.configName}.`);
+      } else {
+        // This case should ideally be caught by earlier checks
+        throw new Error("Internal error: Transport type resolved but required config (baseApiUrl or stdioOptions) missing.");
+      }
+
+      this.sdkClient = new McpSDKClient(clientInfo);
+
+      // this.addAuditLog('MCP_SDK_CLIENT_CONNECT_ATTEMPT', `Attempting to connect MCP SDK Client to ${this.apiConfig.baseApiUrl} for ${apiConfig.configName}.`); // Old log
       await this.sdkClient.connect(this.activeTransport);
-      
+
       this.initialized = true;
       this.initializationError = null; // Clear error on success
-      this.addAuditLog('MCP_SDK_CLIENT_INIT_SUCCESS', `MCP SDK Client initialized and connected for ${apiConfig.configName}.`);
-      console.log('MCP SDK Client Initialized and connected with API config:', this.apiConfig);
+      this.addAuditLog('MCP_SDK_CLIENT_INIT_SUCCESS', `MCP SDK Client initialized and connected (${transportType}) for ${apiConfig.configName}.`);
+      console.log(`MCP SDK Client Initialized and connected (${transportType}) with API config:`, this.apiConfig);
 
     } catch (e: any) {
-      this.initializationError = `MCP SDK Client connection failed for ${apiConfig.configName} at ${this.apiConfig.baseApiUrl}: ${e.message || 'Unknown connection error'}`;
+      const target = transportType === 'http' ? this.apiConfig.baseApiUrl : `command '${this.apiConfig.stdioOptions?.command}'`;
+      this.initializationError = `MCP SDK Client connection failed for ${apiConfig.configName} (transport: ${transportType}, target: ${target}): ${e.message || 'Unknown connection error'}`;
       this.addAuditLog('MCP_SDK_CLIENT_INIT_ERROR', this.initializationError);
       console.error(this.initializationError, e);
       this.sdkClient = null;
@@ -133,7 +164,7 @@ export class McpClient {
       children: (Array.isArray(resource.children) ? resource.children.map(child => this.mapMcpResourceToDirectoryNode(child)) : undefined),
     };
   }
-  
+
   private checkClientReady(operationName: string): boolean {
     if (!this.sdkClient || !this.apiConfig || !this.initialized) {
       this.initializationError = this.initializationError || `MCP SDK Client not ready or not properly initialized for operation: ${operationName}. Initialized: ${this.initialized}, API Config: ${!!this.apiConfig}, SDK Client: ${!!this.sdkClient}`;
@@ -149,7 +180,7 @@ export class McpClient {
     try {
       this.addAuditLog('MCP_OP_LISTRESOURCES_START', `Listing resources for rootUri: ${path}`);
       const response: ListResourcesResult = await this.sdkClient.listResources({ rootUri: path });
-      const resultPayload = response.result as ({ resources?: McpResource[] } | undefined); 
+      const resultPayload = response.result as ({ resources?: McpResource[] } | undefined);
       this.addAuditLog('MCP_OP_LISTRESOURCES_SUCCESS', `Found ${Array.isArray(resultPayload?.resources) ? resultPayload.resources.length : 0} resources for ${path}.`);
       return Array.isArray(resultPayload?.resources) ? resultPayload.resources.map(res => this.mapMcpResourceToDirectoryNode(res)) : [];
     } catch (e: any) {
@@ -164,7 +195,7 @@ export class McpClient {
     try {
       this.addAuditLog('MCP_OP_READRESOURCE_START', `Reading resource: ${path}`);
       const response: ReadResourceResult = await this.sdkClient.readResource({ uri: path });
-      const resultPayload = response.result as ({ resource?: McpResource } | undefined); 
+      const resultPayload = response.result as ({ resource?: McpResource } | undefined);
       const resource = resultPayload?.resource;
 
       if (!resource) {
@@ -185,7 +216,7 @@ export class McpClient {
       return {
         name: resource.name || resource.uri.substring(resource.uri.lastIndexOf('/') + 1),
         content: contentString,
-        type: resource.mediaType || 'application/octet-stream',
+        type: (resource.mediaType && typeof resource.mediaType === 'string') ? resource.mediaType : 'application/octet-stream',
         size: typeof resource.byteSize === 'number' ? resource.byteSize : 0,
       };
     } catch (e: any) {
@@ -199,16 +230,20 @@ export class McpClient {
     if (!this.checkClientReady(`callTool(${toolName})`) || !this.sdkClient) return false;
     try {
       this.addAuditLog(`MCP_OP_CALLTOOL_${toolName.toUpperCase()}_START`, `Calling tool ${toolName} with args: ${JSON.stringify(args).substring(0,100)}...`);
-      const response: CallToolResult = await this.sdkClient.callTool({ toolUseId: uuidv4(), name: toolName, arguments: args });
-      
-      const success = response.result && (response.result as any).success === true; 
+      // Use a more generic type for the response from sdkClient.callTool initially
+      const response: any = await this.sdkClient.callTool({ toolUseId: uuidv4(), name: toolName, arguments: args });
+
+      const success = !response.error; // Success is the absence of an error
+
       if (success) {
         this.addAuditLog(`MCP_OP_CALLTOOL_${toolName.toUpperCase()}_SUCCESS`, `${operationDescription} successful using tool ${toolName}.`);
       } else {
-        const resultString = response.result ? JSON.stringify(response.result) : 'No result object';
-        this.addAuditLog(`MCP_OP_CALLTOOL_${toolName.toUpperCase()}_FAILED_RESULT`, `${operationDescription} failed using tool ${toolName}. Server response: ${resultString.substring(0,100)}...`);
+        // If there's an error, response.error should exist
+        const errorMessage = response.error?.message || 'Unknown error from tool.';
+        const resultString = response.result ? JSON.stringify(response.result) : (response.error ? JSON.stringify(response.error) : 'No result or error object');
+        this.addAuditLog(`MCP_OP_CALLTOOL_${toolName.toUpperCase()}_FAILED_RESULT`, `${operationDescription} failed using tool ${toolName}. Server error: ${errorMessage}. Full response details: ${resultString.substring(0,100)}...`);
       }
-      return success;
+      return success; // This is now definitely a boolean
     } catch (e: any) {
       this.addAuditLog(`MCP_OP_CALLTOOL_${toolName.toUpperCase()}_ERROR`, `Error ${operationDescription} using tool ${toolName}: ${e instanceof Error ? e.message : String(e)}`);
       console.error(`MCP callTool ${toolName} for ${operationDescription} failed:`, e);
@@ -221,7 +256,11 @@ export class McpClient {
   }
 
   async renameFile(oldPath: string, newPath: string): Promise<boolean> {
-    return this.callToolAndCheckSuccess("filesystem/renameFile", { oldPath, newPath }, `Renaming ${oldPath} to ${newPath}`);
+    return this.callToolAndCheckSuccess('renameFile', { oldPath, newPath }, 'Renaming file/directory');
+  }
+
+  async createDirectory(path: string): Promise<boolean> {
+    return this.callToolAndCheckSuccess('createDirectory', { path }, 'Creating directory');
   }
 
   async deleteFileOrDirectory(path: string): Promise<boolean> {
@@ -230,12 +269,17 @@ export class McpClient {
 
   async getDirectoryTree(basePath: string = '/'): Promise<DirectoryNode[]> {
     if (!this.checkClientReady('getDirectoryTree') || !this.sdkClient) return [];
-    const toolName = "filesystem/getTree"; 
+    const toolName = "filesystem/getTree";
     try {
       this.addAuditLog(`MCP_OP_CALLTOOL_${toolName.toUpperCase()}_START`, `Getting directory tree for basePath: ${basePath}`);
-      const response: CallToolResult = await this.sdkClient.callTool({ toolUseId: uuidv4(), name: toolName, arguments: { basePath } });
-      
-      const resultPayload = response.result as ({ tree?: McpResource[] } | undefined); 
+      // Use a more generic type for the response
+      const response: any = await this.sdkClient.callTool({ toolUseId: uuidv4(), name: toolName, arguments: { basePath } });
+
+      if (response.error) {
+        throw new Error(response.error.message);
+      }
+
+      const resultPayload = response.result as ({ tree?: McpResource[] } | undefined);
       if (resultPayload && Array.isArray(resultPayload.tree)) {
         const resources = resultPayload.tree;
         this.addAuditLog(`MCP_OP_CALLTOOL_${toolName.toUpperCase()}_SUCCESS`, `Found ${resources.length} root items for tree at ${basePath}.`);
@@ -265,14 +309,19 @@ export class McpClient {
     }
     try {
       this.addAuditLog('MCP_OP_GETSERVERINFO_START', `Fetching server info.`);
-      const toolResponse: CallToolResult = await this.sdkClient.callTool({toolUseId: uuidv4(), name: "system/info", arguments: {}}); 
-      
+      // Use a more generic type for the response
+      const toolResponse: any = await this.sdkClient.callTool({toolUseId: uuidv4(), name: "system/info", arguments: {}});
+
+      if (toolResponse.error) {
+        throw new Error(toolResponse.error.message);
+      }
+
       const serverInfoPayload = toolResponse.result as Record<string, unknown> | undefined;
 
       if (!serverInfoPayload) {
         throw new Error("Server did not return information (empty result).");
       }
-      
+
       let finalServerVersion: string | undefined;
       const rawServerVersion = serverInfoPayload.serverVersion;
 
@@ -287,22 +336,22 @@ export class McpClient {
             console.warn(`MCP Server returned an unexpected type for serverVersion: ${typeof rawServerVersion}. Value: ${JSON.stringify(rawServerVersion)}. Treating version as undefined.`);
         }
       }
-      
+
       this.addAuditLog('MCP_OP_GETSERVERINFO_SUCCESS', `Server info fetched: Version ${String(finalServerVersion ?? 'N/A')}`);
 
       let allowedDirectories: string[] = [];
       try {
         this.addAuditLog('MCP_OP_LISTROOTS_START', 'Listing resource roots for allowed directories.');
         const rootsResponse: ListResourcesResult = await this.sdkClient.listResources({});
-        const rootsResultPayload = rootsResponse.result as ({ resources?: McpResource[] } | undefined); 
+        const rootsResultPayload = rootsResponse.result as ({ resources?: McpResource[] } | undefined);
         allowedDirectories = (Array.isArray(rootsResultPayload?.resources) ? rootsResultPayload.resources.map(r => r.uri) : []);
         this.addAuditLog('MCP_OP_LISTROOTS_SUCCESS', `Found ${allowedDirectories.length} resource roots: ${allowedDirectories.join(', ')}`);
       } catch (rootsError: any) {
         this.addAuditLog('MCP_OP_LISTROOTS_ERROR', `Failed to list resource roots: ${rootsError instanceof Error ? rootsError.message : String(rootsError)}`);
       }
-      
+
       if (this.apiConfig?.expectedServerVersion) {
-        if (!finalServerVersion) { 
+        if (!finalServerVersion) {
           this.addAuditLog('MCP_SERVER_VERSION_WARNING', `Expected server version ${this.apiConfig.expectedServerVersion}, but server did not report a version or it was invalid.`);
         } else if (finalServerVersion !== this.apiConfig.expectedServerVersion) {
           this.addAuditLog('MCP_SERVER_VERSION_MISMATCH', `Expected server version ${this.apiConfig.expectedServerVersion}, but got ${finalServerVersion}.`);
@@ -310,8 +359,8 @@ export class McpClient {
       }
 
       return {
-        isRunning: true, 
-        version: finalServerVersion, 
+        isRunning: true,
+        version: finalServerVersion,
         allowedDirectories: allowedDirectories,
       };
     } catch (e: any) {
@@ -324,7 +373,7 @@ export class McpClient {
       };
     }
   }
-  
+
   public get ready(): boolean {
     return this.initialized && !this.initializationError && !!this.apiConfig && !!this.sdkClient;
   }
@@ -338,10 +387,37 @@ export class McpClient {
   }
 
   public getConfiguredBaseUrl(): string | null {
-    return this.apiConfig ? this.apiConfig.baseApiUrl : null;
+    return this.apiConfig && typeof this.apiConfig.baseApiUrl === 'string' ? this.apiConfig.baseApiUrl : null;
   }
 
   public getConfiguredServerName(): string | null {
     return this.apiConfig ? this.apiConfig.configName : "MCP Server (Config Name N/A)";
+  }
+
+  async listMcpTools(): Promise<McpServerToolDef[] | null> {
+    if (!this.checkClientReady('listMcpTools') || !this.sdkClient) return null;
+    try {
+      this.addAuditLog('MCP_OP_LISTTOOLS_START', 'Listing MCP server tools.');
+      // Use a more generic type for the response
+      const response: any = await this.sdkClient.listTools({});
+
+      if (response.error) {
+        throw new Error(response.error.message);
+      }
+
+      const resultPayload = response.result as ({ tools?: McpServerToolDef[] } | undefined);
+
+      if (resultPayload && Array.isArray(resultPayload.tools)) {
+        this.addAuditLog('MCP_OP_LISTTOOLS_SUCCESS', `Found ${resultPayload.tools.length} MCP server tools.`);
+        return resultPayload.tools;
+      } else {
+        this.addAuditLog('MCP_OP_LISTTOOLS_NO_TOOLS_ARRAY', 'MCP server tools list was not in expected format or empty.');
+        return []; // Return empty array if tools are not in the expected structure
+      }
+    } catch (e: any) {
+      this.addAuditLog('MCP_OP_LISTTOOLS_ERROR', `Failed to list MCP server tools: ${e instanceof Error ? e.message : String(e)}`);
+      console.error('MCP listMcpTools failed:', e);
+      return null;
+    }
   }
 }

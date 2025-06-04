@@ -1,4 +1,3 @@
-
 import React, { useState, useEffect } from 'react';
 import { useAppContext } from '../../contexts/AppContext';
 import { Theme, AuditLogEntry, McpServerStatus, McpApiConfig } from '../../types';
@@ -7,15 +6,15 @@ import { testApiKey as testGeminiApiKey } from '../../services/geminiService';
 import LoadingSpinner from '../ui/LoadingSpinner';
 
 const SettingsPage: React.FC = () => {
-  const { 
-    theme, toggleTheme, auditLog, addAuditLogEntry, 
+  const {
+    theme, toggleTheme, auditLog, addAuditLogEntry,
     mcpServerStatus: contextMcpStatus, setMcpServerStatus,
     apiKey: currentApiKey, setApiKey: setContextApiKey,
     setError, mcpClient, isMcpClientLoading,
-    mcpApiConfigs, activeApiConfigName, 
-    setActiveApiConfig, updateMcpApiConfigs 
+    mcpApiConfigs, activeApiConfigName,
+    setActiveApiConfig, updateMcpApiConfigs
   } = useAppContext();
-  
+
   const [newAllowedDir, setNewAllowedDir] = useState('');
   const [localApiKey, setLocalApiKey] = useState(currentApiKey || '');
   const [isTestingApiKey, setIsTestingApiKey] = useState(false);
@@ -29,7 +28,7 @@ const SettingsPage: React.FC = () => {
   useEffect(() => {
     setCurrentMcpStatus(contextMcpStatus);
   }, [contextMcpStatus]);
-  
+
   useEffect(() => {
     setApiConfigsJson(JSON.stringify(mcpApiConfigs, null, 2));
     setSelectedActiveConfigInDropdown(activeApiConfigName || (mcpApiConfigs.length > 0 ? mcpApiConfigs[0].configName : ''));
@@ -40,8 +39,8 @@ const SettingsPage: React.FC = () => {
     if (mcpClient && mcpClient.ready) {
       try {
         const status = await mcpClient.getServerStatus();
-        setMcpServerStatus(status); 
-        setCurrentMcpStatus(status); 
+        setMcpServerStatus(status);
+        setCurrentMcpStatus(status);
       } catch (err: any) {
         setError(`Failed to refresh MCP server status: ${err.message}`);
         const errorStatus = { isRunning: false, error: err.message };
@@ -73,7 +72,7 @@ const SettingsPage: React.FC = () => {
       if (success) {
         addAuditLogEntry('MCP_DIRECTORY_ADDED_CLIENT', `Directory "${newAllowedDir}" add request sent to server.`);
         setNewAllowedDir('');
-        await fetchMcpStatus(); 
+        await fetchMcpStatus();
       } else {
         setError(`Server failed to process "add directory" request for "${newAllowedDir}". Check server logs.`);
       }
@@ -81,20 +80,20 @@ const SettingsPage: React.FC = () => {
       setError(`Error sending "add directory" request to MCP server: ${err.message}`);
     }
   };
-  
+
   const handleApiKeySave = async () => {
     setIsTestingApiKey(true);
     setApiKeyTestResult(null);
-    setError(null); 
+    setError(null);
     const originalEnvKey = process.env.API_KEY;
     (process.env as any).API_KEY = localApiKey;
 
     const testSuccess = await testGeminiApiKey();
-    
-    (process.env as any).API_KEY = originalEnvKey; 
+
+    (process.env as any).API_KEY = originalEnvKey;
 
     if (testSuccess) {
-      setContextApiKey(localApiKey); 
+      setContextApiKey(localApiKey);
       setApiKeyTestResult("API Key is valid and saved!");
       addAuditLogEntry('API_KEY_UPDATED', 'Gemini API Key updated successfully.');
     } else {
@@ -106,14 +105,14 @@ const SettingsPage: React.FC = () => {
   };
 
   const handleSaveApiConfigs = async () => {
-    setError(null); 
+    setError(null);
     setImportedFileError(null);
     try {
       const parsedConfigs: McpApiConfig[] = JSON.parse(apiConfigsJson);
       if (!Array.isArray(parsedConfigs) || !parsedConfigs.every(c => c.configName && c.baseApiUrl && c.endpoints)) {
         throw new Error("Invalid JSON structure. Ensure it's an array of McpApiConfig objects, each with configName, baseApiUrl, and endpoints.");
       }
-      
+
       updateMcpApiConfigs(parsedConfigs); // Update the list in context first
 
       let configNameToActivate: string | null = null;
@@ -131,7 +130,7 @@ const SettingsPage: React.FC = () => {
       await setActiveApiConfig(configNameToActivate); // This will handle null correctly
 
       // Sync local dropdown state with what was actually activated
-      setSelectedActiveConfigInDropdown(configNameToActivate || ''); 
+      setSelectedActiveConfigInDropdown(configNameToActivate || '');
 
       if (configNameToActivate) {
         // alert("API Configurations saved and applied!"); // Optional: replace with a more subtle notification
@@ -152,7 +151,7 @@ const SettingsPage: React.FC = () => {
     const newActiveName = e.target.value;
     setSelectedActiveConfigInDropdown(newActiveName); // Update local state for dropdown
     if (newActiveName) { // Only call setActiveApiConfig if a valid name is selected
-        await setActiveApiConfig(newActiveName); 
+        await setActiveApiConfig(newActiveName);
     } else { // If dropdown selection becomes empty (e.g. "No API configurations loaded")
         await setActiveApiConfig(null);
     }
@@ -169,7 +168,7 @@ const SettingsPage: React.FC = () => {
       try {
         const text = e.target?.result as string;
         const parsedData: McpApiConfig[] = JSON.parse(text);
-        
+
         // Basic validation
         if (!Array.isArray(parsedData)) {
           throw new Error("Imported file is not a JSON array.");
@@ -177,7 +176,7 @@ const SettingsPage: React.FC = () => {
         if (parsedData.length > 0 && !parsedData.every(c => c.configName && c.baseApiUrl && c.endpoints && typeof c.endpoints === 'object')) {
           throw new Error("Imported JSON array does not match the expected McpApiConfig structure. Each object must have 'configName', 'baseApiUrl', and 'endpoints'.");
         }
-        
+
         setApiConfigsJson(JSON.stringify(parsedData, null, 2));
         addAuditLogEntry('MCP_API_CONFIGS_FILE_PREPARED', `Configurations from file ${file.name} loaded into editor.`);
         alert(`Configurations from "${file.name}" loaded into the editor. Review and click "Save & Apply" to persist.`);
@@ -197,42 +196,42 @@ const SettingsPage: React.FC = () => {
     reader.readAsText(file);
     event.target.value = ''; // Reset file input
   };
-  
+
   const activeConfigDetails = mcpApiConfigs.find(c => c.configName === activeApiConfigName);
 
   return (
     <div className="p-6 space-y-8 max-w-4xl mx-auto">
       <h2 className="text-3xl font-semibold text-textPrimary">Settings</h2>
 
-      <section className="bg-surface p-6 rounded-lg shadow border border-border">
+      <section className="bg-surface p-6 rounded-lg shadow-modern-md dark:shadow-modern-md-dark border border-border">
         <h3 className="text-xl font-semibold text-textPrimary mb-4">Appearance</h3>
         <div className="flex items-center justify-between">
           <span className="text-textSecondary">Theme</span>
-          <ToggleSwitch 
+          <ToggleSwitch
             id="theme-toggle"
-            checked={theme === Theme.Dark} 
+            checked={theme === Theme.Dark}
             onChange={() => toggleTheme()}
             label={theme === Theme.Dark ? 'Dark Mode' : 'Light Mode'}
           />
         </div>
       </section>
 
-      <section className="bg-surface p-6 rounded-lg shadow border border-border">
+      <section className="bg-surface p-6 rounded-lg shadow-modern-md dark:shadow-modern-md-dark border border-border">
         <h3 className="text-xl font-semibold text-textPrimary mb-4">Gemini API Key</h3>
         <p className="text-sm text-textSecondary mb-2">
-          The API key is ideally set via the <code className="bg-background px-1 rounded">API_KEY</code> environment variable. 
+          The API key is ideally set via the <code className="bg-background px-1 rounded">API_KEY</code> environment variable.
           You can also set it here for the current session.
         </p>
         <div className="flex flex-col sm:flex-row gap-2 items-start">
-          <input 
-            type="password" 
+          <input
+            type="password"
             value={localApiKey}
             onChange={(e) => setLocalApiKey(e.target.value)}
             placeholder="Enter your Gemini API Key"
             className="flex-grow mt-1 block w-full px-3 py-2 bg-background border border-border rounded-md shadow-sm focus:outline-none focus:ring-primary focus:border-primary sm:text-sm"
           />
-          <button 
-            onClick={handleApiKeySave} 
+          <button
+            onClick={handleApiKeySave}
             disabled={isTestingApiKey || !localApiKey}
             className="bg-primary text-white px-4 py-2 rounded-lg hover:bg-primary-dark transition-colors disabled:opacity-50 whitespace-nowrap"
           >
@@ -251,14 +250,14 @@ const SettingsPage: React.FC = () => {
          )}
       </section>
 
-      <section className="bg-surface p-6 rounded-lg shadow border border-border">
+      <section className="bg-surface p-6 rounded-lg shadow-modern-md dark:shadow-modern-md-dark border border-border">
         <h3 className="text-xl font-semibold text-textPrimary mb-2">MCP Server Connection & Status</h3>
-        
+
         <div className="mb-4">
             <label htmlFor="active-api-config" className="block text-sm font-medium text-textSecondary">Active API Connection Profile</label>
-            <select 
-                id="active-api-config" 
-                value={selectedActiveConfigInDropdown} 
+            <select
+                id="active-api-config"
+                value={selectedActiveConfigInDropdown}
                 onChange={handleActiveApiConfigChange}
                 disabled={isMcpClientLoading || mcpApiConfigs.length === 0}
                 className="mt-1 block w-full px-3 py-2 bg-background border border-border rounded-md shadow-sm focus:outline-none focus:ring-primary focus:border-primary sm:text-sm"
@@ -269,15 +268,15 @@ const SettingsPage: React.FC = () => {
                 ))}
             </select>
         </div>
-        
+
         <h4 className="text-lg font-medium text-textPrimary mt-4 mb-1">Server Status (using "{selectedActiveConfigInDropdown || 'N/A'}")</h4>
          {isMcpClientLoading && <LoadingSpinner message="Initializing MCP Client..." />}
          {!isMcpClientLoading && mcpClient && !mcpClient.ready && (
             <p className="text-sm text-red-500">MCP Client Error: {mcpClient.getInitializationError()}</p>
          )}
         <div className="text-sm space-y-1 text-textSecondary">
-          <p>Status: {currentMcpStatus.isRunning ? 
-            <span className="text-green-500 font-semibold">Running</span> : 
+          <p>Status: {currentMcpStatus.isRunning ?
+            <span className="text-green-500 font-semibold">Running</span> :
             <span className="text-red-500 font-semibold">Not Running {currentMcpStatus.error ? `(${currentMcpStatus.error.substring(0,150)}${currentMcpStatus.error.length > 150 ? '...' : ''})` : ''}</span>}
           </p>
           {currentMcpStatus.isRunning && <p>Reported Server Version: {currentMcpStatus.version || 'N/A'}</p>}
@@ -295,7 +294,7 @@ const SettingsPage: React.FC = () => {
           ) : <p>No directories configured or status unavailable.</p>}
         </div>
         <button onClick={fetchMcpStatus} disabled={isMcpClientLoading || !mcpClient} className="mt-2 text-xs bg-gray-200 dark:bg-gray-700 px-2 py-1 rounded hover:bg-gray-300 dark:hover:bg-gray-600 disabled:opacity-50">Refresh MCP Status</button>
-        
+
         <div className="mt-4">
           <label htmlFor="new-dir" className="block text-sm font-medium text-textSecondary">Add Allowed Directory (via active MCP connection)</label>
           <div className="flex gap-2 mt-1">
@@ -307,8 +306,8 @@ const SettingsPage: React.FC = () => {
               placeholder="/path/to/your/case/files"
               className="flex-grow px-3 py-2 bg-background border border-border rounded-md shadow-sm focus:outline-none focus:ring-primary focus:border-primary sm:text-sm"
             />
-            <button 
-              onClick={handleAddDirectory} 
+            <button
+              onClick={handleAddDirectory}
               className="bg-secondary text-white px-4 py-2 rounded-lg hover:bg-secondary-dark transition-colors"
               disabled={newAllowedDir.trim() === '' || !mcpClient || !mcpClient.ready}
             >
@@ -318,17 +317,17 @@ const SettingsPage: React.FC = () => {
         </div>
       </section>
 
-       <section className="bg-surface p-6 rounded-lg shadow border border-border">
+       <section className="bg-surface p-6 rounded-lg shadow-modern-md dark:shadow-modern-md-dark border border-border">
         <h3 className="text-xl font-semibold text-textPrimary mb-2">MCP API Connection Profiles</h3>
         <p className="text-xs text-textSecondary mb-2">
           Define or import sets of API connection profiles. This application uses these to connect to MCP server APIs.
           The structure should be an array of McpApiConfig objects.
         </p>
-        
+
         <div className="my-4">
             <label htmlFor="import-api-configs" className="block text-sm font-medium text-textSecondary">Import API Connection Profiles File</label>
-            <input 
-                type="file" 
+            <input
+                type="file"
                 id="import-api-configs"
                 accept=".json"
                 onChange={handleImportApiConfigsFile}
@@ -349,7 +348,7 @@ const SettingsPage: React.FC = () => {
     "endpoints": {
       "listDirectory": "/fs/list",
       /* ... other endpoints ... */
-      "getServerStatus": "http://localhost:8081/status" 
+      "getServerStatus": "http://localhost:8081/status"
     },
     "requestTimeoutMs": 20000,
     "expectedServerVersion": "0.1.0"
@@ -357,15 +356,15 @@ const SettingsPage: React.FC = () => {
 ]`}
             aria-label="MCP API Configurations JSON Editor"
         />
-        <button 
-            onClick={handleSaveApiConfigs} 
+        <button
+            onClick={handleSaveApiConfigs}
             className="mt-2 bg-primary text-white px-4 py-2 rounded-lg hover:bg-primary-dark transition-colors"
         >
             Save & Apply API Connection Configurations
         </button>
       </section>
 
-      <section className="bg-surface p-6 rounded-lg shadow border border-border">
+      <section className="bg-surface p-6 rounded-lg shadow-modern-md dark:shadow-modern-md-dark border border-border">
         <h3 className="text-xl font-semibold text-textPrimary mb-4">Audit Log</h3>
         <div className="max-h-96 overflow-y-auto space-y-2 text-sm border border-border p-3 rounded-md bg-background">
           {auditLog.length > 0 ? auditLog.map((entry: AuditLogEntry) => (

@@ -1,10 +1,9 @@
-
 import React, { createContext, useContext, useState, useEffect, useCallback, ReactNode, useRef } from 'react';
-import { EvidenceFile, Tag, ChatMessage, AuditLogEntry, Theme, McpServerStatus, WcatCase, PolicyManual, PolicyEntry, PolicyReference, SavedChatSession, McpUserProvidedServers, McpApiConfig, AiTool, McpServerProcessConfig, DynamicMarker } from '../types';
-import { v4 as uuidv4 } from 'uuid'; 
+import { EvidenceFile, Tag, ChatMessage, AuditLogEntry, Theme, McpServerStatus, WcatCase, PolicyManual, PolicyEntry, PolicyReference, SavedChatSession, McpUserProvidedServers, McpApiConfig, AiTool, McpServerProcessConfig, DynamicMarker, McpStdioOptions } from '../types';
+import { v4 as uuidv4 } from 'uuid';
 import { POLICY_NUMBER_REGEX, DEFAULT_WCAT_PATTERN_TAG_COLOR } from '../constants';
-import { McpClient } from '../services/McpClient'; 
-import { identifyWcatCasePatterns, resetChatSession as resetGeminiChatSession, extractPolicyEntriesFromManualText } from '../services/geminiService'; 
+import { McpClient } from '../services/McpClient';
+import { identifyWcatCasePatterns, resetChatSession as resetGeminiChatSession, extractPolicyEntriesFromManualText } from '../services/geminiService';
 
 console.log("AppContext.tsx: Module loaded.");
 
@@ -24,7 +23,7 @@ interface AppContextType {
   addChatMessage: (message: Omit<ChatMessage, 'id' | 'timestamp'>) => ChatMessage;
   clearChatHistory: () => void;
   auditLog: AuditLogEntry[];
-  addAuditLogEntry: (action: string, details: string) => void;
+  addAuditLogEntry: (action: string, details: string, status?: 'info' | 'success' | 'warning' | 'error') => void;
   mcpServerStatus: McpServerStatus;
   setMcpServerStatus: (status: McpServerStatus) => void;
   mcpClient: McpClient | null;
@@ -42,7 +41,7 @@ interface AppContextType {
   deleteWcatCase: (caseId: string) => void;
   getWcatCaseByDecisionNumber: (decisionNumber: string) => WcatCase | undefined;
   getWcatCaseById: (id: string) => WcatCase | undefined;
-  
+
   policyManuals: PolicyManual[];
   addPolicyManual: (manualInfo: { manualName: string; sourceUrl?: string; version?: string }, pdfContent: string, originalFileName: string) => Promise<PolicyManual | null>;
   deletePolicyManual: (manualId: string) => Promise<void>;
@@ -98,7 +97,7 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
   const [tags, setTags] = useState<Tag[]>([]);
   const [chatHistory, setChatHistory] = useState<ChatMessage[]>([]);
   const [auditLog, setAuditLog] = useState<AuditLogEntry[]>([]);
-  
+
   const [isLoading, setIsLoading] = useState<boolean>(false);
   const [currentError, setCurrentError] = useState<string | null>(null);
   const currentErrorRef = useRef(currentError); // Ref for currentError
@@ -136,218 +135,299 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
   const [dynamicMarkers, setDynamicMarkersInternal] = useState<Record<string, DynamicMarker[]>>({});
 
 
-  const addAuditLogEntry = useCallback((action: string, details: string) => {
+  const addAuditLogEntry = useCallback((action: string, details: string, status: 'info' | 'success' | 'warning' | 'error' = 'info') => {
     const newEntry: AuditLogEntry = {
       id: uuidv4(),
       timestamp: new Date().toISOString(),
       action,
       details,
+      status,
     };
     setAuditLog((prevLog) => [newEntry, ...prevLog.slice(0, 199)]);
   }, []);
-  
-  const localSetError = useCallback((error: string | null) => { 
+
+  const localSetError = useCallback((error: string | null) => {
     setCurrentError(error);
     if (error) {
         console.error("AppContext: Application Error Set:", error);
-        addAuditLogEntry('APPLICATION_ERROR_SET', error);
+        addAuditLogEntry('APPLICATION_ERROR_SET', error, 'error');
     }
   }, [addAuditLogEntry]);
-  
+
   useEffect(() => {
-    console.log("AppContext.tsx: initializeFullMcpClient useEffect TRIGGERED.");
-    const initializeFullMcpClient = async () => {
-      console.log("AppContext.tsx: initializeFullMcpClient async function STARTED.");
+    const initializeSystem = async () => {
+      console.log("AppContext.tsx: initializeSystem async function STARTED.");
       setIsMcpClientLoading(true);
-      localSetError(null); 
-      let client: McpClient | null = null; 
-      
-      try { 
-        let loadedUserMcpDefs: McpUserProvidedServers | null = null;
+      localSetError(null); // Clear previous general errors
+
+      let combinedApiConfigs: McpApiConfig[] = [];
+
+      // 1. Fetch and process mcp.json (for stdio servers)
+      try {
+        addAuditLogEntry('MCP_CONFIG_LOAD_STDIO_ATTEMPT', 'Attempting to fetch mcp.json for stdio servers...');
+        const responseMcpJson = await fetch('/mcp.json'); // Ensure mcp.json is in public folder
+        addAuditLogEntry('MCP_CONFIG_LOAD_STDIO_FETCH_STATUS', `mcp.json fetch status: ${responseMcpJson.status}`);
+
+        if (responseMcpJson.ok) {
+          const mcpJsonData = await responseMcpJson.json();
+          if (mcpJsonData && mcpJsonData.mcpServers && typeof mcpJsonData.mcpServers === 'object') {
+            const parsedStdioConfigs: McpApiConfig[] = Object.entries(mcpJsonData.mcpServers)
+              .map(([name, serverDef]: [string, any]) => {
+                const expectedVersion = serverDef.expectedServerVersion || serverDef.expected_server_version;
+                const transportTypeString = serverDef.type === 'stdio' ? 'stdio' : 'http';
+                let transportTypeFinal: 'stdio' | 'http' | undefined = 'http';
+                if (transportTypeString === 'stdio') {
+                    transportTypeFinal = 'stdio';
+                } else if (transportTypeString === 'http') {
+                    transportTypeFinal = 'http';
+                } else {
+                    console.warn(`Unexpected transport type string: ${transportTypeString} for ${name}. Defaulting to http.`);
+                    transportTypeFinal = 'http';
+                }
+
+                return {
+                  configName: name,
+                  transportType: transportTypeFinal,
+                  stdioOptions: serverDef.type === 'stdio' ? {
+                    command: serverDef.command,
+                    args: serverDef.args,
+                    cwd: serverDef.cwd,
+                    env: serverDef.env,
+                  } : undefined,
+                  expectedServerVersion: expectedVersion,
+                };
+              })
+              .filter(config => config.transportType === 'stdio');
+
+            combinedApiConfigs = combinedApiConfigs.concat(parsedStdioConfigs);
+            addAuditLogEntry('MCP_CONFIGS_LOADED_STDIO_SUCCESS', `Loaded ${parsedStdioConfigs.length} stdio configurations from mcp.json.`);
+            console.log("AppContext.tsx: mcp.json loaded and processed for stdio servers.", parsedStdioConfigs);
+            // Also store the raw mcp.json definitions if needed elsewhere
+            setUserMcpServerDefinitions(mcpJsonData);
+
+          } else {
+            addAuditLogEntry('MCP_CONFIGS_PARSE_STDIO_WARN', `mcp.json does not contain a valid mcpServers object or is empty.`, 'warning');
+            console.warn("AppContext.tsx: mcp.json does not contain a valid mcpServers object or is empty.");
+          }
+        } else {
+          addAuditLogEntry('MCP_CONFIGS_LOAD_STDIO_FAIL', `Failed to load mcp.json: ${responseMcpJson.statusText} (status ${responseMcpJson.status})`, 'warning');
+          console.warn(`AppContext.tsx: Failed to load mcp.json (status: ${responseMcpJson.status}). Ensure it's in the public folder.`);
+        }
+      } catch (e: any) {
+        addAuditLogEntry('MCP_CONFIGS_FETCH_STDIO_ERROR', `Exception fetching or parsing mcp.json: ${e.message}`, 'error');
+        console.error("AppContext.tsx: Exception fetching or parsing mcp.json:", e);
+      }
+
+      // 2. Fetch and process mcp_api_configs.json (for HTTP servers)
+      //    This also serves as a fallback if localStorage for API configs isn't present or is invalid.
+      let httpConfigsFromDefaultFile: McpApiConfig[] = [];
+      try {
+        addAuditLogEntry('MCP_CONFIG_LOAD_HTTP_ATTEMPT', 'Attempting to fetch mcp_api_configs.json for HTTP servers...');
+        const responseApiConfigsJson = await fetch('/mcp_api_configs.json'); // Ensure mcp_api_configs.json is in public folder
+        addAuditLogEntry('MCP_CONFIG_LOAD_HTTP_FETCH_STATUS', `mcp_api_configs.json fetch status: ${responseApiConfigsJson.status}`);
+
+        if (responseApiConfigsJson.ok) {
+          const httpConfigsData = await responseApiConfigsJson.json();
+          if (Array.isArray(httpConfigsData) && httpConfigsData.every(c => c.configName)) {
+            httpConfigsFromDefaultFile = httpConfigsData.map(config => ({
+              ...config,
+              transportType: 'http',
+            }));
+            addAuditLogEntry('MCP_API_CONFIGS_LOADED_HTTP_SUCCESS', `Loaded ${httpConfigsFromDefaultFile.length} HTTP configurations from mcp_api_configs.json.`);
+            console.log("AppContext.tsx: mcp_api_configs.json loaded and processed for HTTP servers.", httpConfigsFromDefaultFile);
+          } else {
+            addAuditLogEntry('MCP_API_CONFIGS_PARSE_HTTP_WARN', `mcp_api_configs.json is not a valid array of configurations or is empty.`, 'warning');
+            console.warn("AppContext.tsx: mcp_api_configs.json is not a valid array of configurations or is empty.");
+          }
+        } else {
+          addAuditLogEntry('MCP_API_CONFIGS_LOAD_HTTP_FAIL', `Failed to load mcp_api_configs.json: ${responseApiConfigsJson.statusText} (status ${responseApiConfigsJson.status})`, 'warning');
+          console.warn(`AppContext.tsx: Failed to load mcp_api_configs.json (status: ${responseApiConfigsJson.status}). Ensure it's in the public folder.`);
+        }
+      } catch (e: any) {
+        addAuditLogEntry('MCP_API_CONFIGS_FETCH_HTTP_ERROR', `Exception fetching or parsing mcp_api_configs.json: ${e.message}`, 'error');
+        console.error("AppContext.tsx: Exception fetching or parsing mcp_api_configs.json:", e);
+      }
+
+      // Combine with HTTP configs from default file
+      combinedApiConfigs = combinedApiConfigs.concat(httpConfigsFromDefaultFile);
+
+      // Attempt to load API configs from localStorage (these might include user edits if you have a settings page to manage them)
+      const storedApiConfigsStr = localStorage.getItem('mcp-api-configurations');
+      let configsFromLocalStorage: McpApiConfig[] = [];
+      if (storedApiConfigsStr) {
         try {
-          console.log("AppContext.tsx: Fetching mcp.json...");
-          const responseMcpJson = await fetch('/mcp.json');
-          console.log("AppContext.tsx: mcp.json fetch status:", responseMcpJson.status);
-          if (responseMcpJson.ok) {
-            try {
-              loadedUserMcpDefs = await responseMcpJson.json();
-              setUserMcpServerDefinitions(loadedUserMcpDefs);
-              addAuditLogEntry('MCP_USER_DEFS_LOADED', 'User MCP server definitions (mcp.json) loaded.');
-              console.log("AppContext.tsx: mcp.json loaded and parsed successfully.");
-            } catch (jsonParseError: any) {
-              addAuditLogEntry('MCP_USER_DEFS_PARSE_ERROR', `Failed to parse mcp.json: ${jsonParseError.message}`);
-              localSetError(`Error parsing mcp.json. Check console for details.`);
-              console.error("AppContext.tsx: Error parsing mcp.json:", jsonParseError);
+          configsFromLocalStorage = JSON.parse(storedApiConfigsStr);
+          addAuditLogEntry('MCP_API_CONFIGS_LOADED_LS', `Loaded ${configsFromLocalStorage.length} API configurations from localStorage.`);
+           // Replace default HTTP with LS ones if they exist for HTTP, but keep stdio from mcp.json
+          const stdioFromMcpDotJson = combinedApiConfigs.filter(c => c.transportType === 'stdio');
+          const httpFromLS = configsFromLocalStorage.filter(c => c.transportType === 'http');
+          combinedApiConfigs = [...stdioFromMcpDotJson, ...httpFromLS];
+
+        } catch (e:any) {
+          addAuditLogEntry('MCP_API_CONFIGS_PARSE_LS_ERROR', `Failed to parse API configs from localStorage: ${e.message}. Using defaults/mcp.json.`, 'warning');
+          // combinedApiConfigs remains as loaded from files
+        }
+      }
+
+
+      // Deduplicate configurations, prioritizing stdio, then localStorage HTTP, then file HTTP
+      const uniqueConfigs: McpApiConfig[] = [];
+      const names = new Set<string>();
+
+      // Order of preference: stdio from mcp.json, then all from localStorage, then http from mcp_api_configs.json
+      // Note: combinedApiConfigs already reflects a preference for localStorage HTTP over file HTTP if LS was valid.
+      // The main goal here is to ensure stdio from mcp.json is present and that names are unique.
+      const configsToDeduplicate = [
+          ...combinedApiConfigs.filter(c => c.transportType === 'stdio'), // Stdio from mcp.json first
+          ...combinedApiConfigs.filter(c => c.transportType === 'http')    // HTTP from LS (if loaded) or mcp_api_configs.json
+      ];
+
+      for (const config of configsToDeduplicate) {
+        if (!names.has(config.configName)) {
+          uniqueConfigs.push(config);
+          names.add(config.configName);
+        } else {
+          addAuditLogEntry('MCP_CONFIG_DUPLICATE_IGNORED', `Duplicate config name "${config.configName}" (type: ${config.transportType}) ignored. Prioritized first encountered or stdio.`, 'warning');
+        }
+      }
+
+      setMcpApiConfigsInternal(uniqueConfigs); // Update state with the final list of configs
+      if (uniqueConfigs.length > 0) {
+        addAuditLogEntry('MCP_CONFIGS_SET_SUCCESS', `Total ${uniqueConfigs.length} unique MCP configurations loaded and set.`);
+        console.log("AppContext.tsx: Final unique MCP configurations set:", uniqueConfigs);
+      } else {
+        localSetError("No MCP server configurations found. Check mcp.json and mcp_api_configs.json in your public folder, and the console for errors.");
+        addAuditLogEntry('MCP_CONFIGS_LOAD_FINAL_FAILURE', 'No MCP configurations were loaded from any source.', 'error');
+        console.error("AppContext.tsx: No MCP configurations loaded from any source.");
+      }
+
+      // Determine and set active MCP configuration
+      let activeConfigToSet: McpApiConfig | null = null;
+      const activeConfigNameFromStorage = localStorage.getItem('mcp-active-api-config-name');
+      if (activeConfigNameFromStorage) {
+        activeConfigToSet = uniqueConfigs.find(c => c.configName === activeConfigNameFromStorage) || null;
+      }
+      if (!activeConfigToSet && uniqueConfigs.length > 0) {
+        activeConfigToSet = uniqueConfigs[0]; // Default to the first one if no active or previous active not found
+      }
+
+      setActiveApiConfigNameInternal(activeConfigToSet ? activeConfigToSet.configName : null);
+      if (activeConfigToSet) {
+        localStorage.setItem('mcp-active-api-config-name', activeConfigToSet.configName);
+        addAuditLogEntry('MCP_ACTIVE_CONFIG_DETERMINED', `Active MCP config to be used: ${activeConfigToSet.configName}`);
+        console.log("AppContext.tsx: Active API config to be used:", activeConfigToSet.configName);
+      } else {
+        localStorage.removeItem('mcp-active-api-config-name');
+        addAuditLogEntry('MCP_ACTIVE_CONFIG_NONE', 'No active MCP configuration could be set.');
+        console.log("AppContext.tsx: No active API config to set.");
+      }
+
+      // Initialize McpClient instance
+      const client = new McpClient(addAuditLogEntry);
+      await client.initialize(activeConfigToSet); // Initialize with the determined active config
+      setMcpClientInstance(client);
+      addAuditLogEntry('MCP_CLIENT_INSTANCE_INITIALIZED', `McpClient instance initialized. Ready: ${client.ready}. Error: ${client.getInitializationError() || 'None'}`);
+      console.log("AppContext.tsx: McpClient instance set. IsReady:", client.ready, "InitError:", client.getInitializationError());
+
+      // Check server status if client initialized
+      if (client.ready && activeConfigToSet) {
+        try {
+          addAuditLogEntry('MCP_STATUS_FETCH_ATTEMPT', `Fetching server status for ${activeConfigToSet.configName}...`);
+          const status = await client.getServerStatus();
+          setMcpServerStatus(status);
+          console.log("AppContext.tsx: MCP Server status received:", status);
+          if (!status.isRunning) {
+            const serverName = client.getConfiguredServerName() || 'MCP Server';
+            const targetDetail = activeConfigToSet.transportType === 'stdio'
+              ? `command '${activeConfigToSet.stdioOptions?.command}'`
+              : client.getConfiguredBaseUrl() || 'configured address';
+            const errorDetail = status.error ? `: ${status.error}` : '(no specific error reported).';
+
+            const isDefaultHttpConfig = activeConfigToSet.configName === "Default Local MCP Server" && activeConfigToSet.transportType === 'http';
+            const isNetworkError = status.error && (status.error.toLowerCase().includes("failed to fetch") || status.error.toLowerCase().includes("networkerror"));
+
+            if (isDefaultHttpConfig && isNetworkError) {
+              console.warn(`AppContext.tsx: Initial check: ${serverName} at ${targetDetail} appears to be offline. Global error suppressed for default HTTP config.`);
+              addAuditLogEntry('MCP_DEFAULT_HTTP_OFFLINE_STARTUP', `Initial check: ${serverName} at ${targetDetail} offline. Global error suppressed for this startup.`);
+            } else {
+              localSetError(`${serverName} (target: ${targetDetail}) Issue${errorDetail} File operations may fail.`);
             }
           } else {
-            addAuditLogEntry('MCP_USER_DEFS_LOAD_ERROR', `Failed to load mcp.json: ${responseMcpJson.statusText} (status ${responseMcpJson.status})`);
-            localSetError(`Failed to load mcp.json (status ${responseMcpJson.status}). Ensure it exists and is accessible.`);
-            console.error("AppContext.tsx: Failed to load mcp.json, status:", responseMcpJson.status);
+            localSetError(null); // Clear error if server is running
           }
         } catch (e: any) {
-          addAuditLogEntry('MCP_USER_DEFS_FETCH_ERROR', `Exception fetching mcp.json: ${e.message}`);
-          localSetError(`Network error fetching mcp.json. Check console.`);
-          console.error("AppContext.tsx: Network error fetching mcp.json:", e);
+          const errorMessage = e.message || "Unknown error during MCP status check";
+          setMcpServerStatus({ isRunning: false, error: errorMessage });
+          localSetError(`Failed to get MCP status for ${activeConfigToSet.configName}: ${errorMessage}. File operations may fail.`);
+          console.error("AppContext.tsx: Error fetching MCP status for " + activeConfigToSet.configName + ":", e);
         }
-
-        let loadedApiConfigs: McpApiConfig[] = [];
-        const storedApiConfigs = localStorage.getItem('mcp-api-configurations');
-        if (storedApiConfigs) {
-          try {
-            loadedApiConfigs = JSON.parse(storedApiConfigs);
-            addAuditLogEntry('MCP_API_CONFIGS_LOADED_LS', 'API connection configurations loaded from localStorage.');
-          } catch (e: any) {
-            addAuditLogEntry('MCP_API_CONFIGS_PARSE_LS_ERROR', `Failed to parse API configs from localStorage: ${e.message}, loading defaults.`);
-          }
-        }
-        
-        if (loadedApiConfigs.length === 0) {
-          try {
-            console.log("AppContext.tsx: Fetching mcp_api_configs.json...");
-            const responseApiConfigsJson = await fetch('/mcp_api_configs.json');
-            console.log("AppContext.tsx: mcp_api_configs.json fetch status:", responseApiConfigsJson.status);
-            if (responseApiConfigsJson.ok) {
-              try {
-                loadedApiConfigs = await responseApiConfigsJson.json();
-                addAuditLogEntry('MCP_API_CONFIGS_LOADED_DEFAULT', 'Default API connection configurations loaded from mcp_api_configs.json.');
-                 console.log("AppContext.tsx: mcp_api_configs.json loaded and parsed successfully.");
-              } catch (jsonParseError: any) {
-                addAuditLogEntry('MCP_API_CONFIGS_PARSE_DEFAULT_ERROR', `Failed to parse mcp_api_configs.json: ${jsonParseError.message}`);
-                localSetError(`Error parsing mcp_api_configs.json. Check console for details.`);
-                console.error("AppContext.tsx: Error parsing mcp_api_configs.json:", jsonParseError);
-              }
-            } else {
-              addAuditLogEntry('MCP_API_CONFIGS_LOAD_DEFAULT_ERROR', `Failed to load default mcp_api_configs.json: ${responseApiConfigsJson.statusText} (status ${responseApiConfigsJson.status})`);
-              localSetError(`Failed to load mcp_api_configs.json (status ${responseApiConfigsJson.status}). Ensure it exists and is accessible.`);
-              console.error("AppContext.tsx: Failed to load mcp_api_configs.json, status:", responseApiConfigsJson.status);
-            }
-          } catch (e: any) {
-            addAuditLogEntry('MCP_API_CONFIGS_FETCH_DEFAULT_ERROR', `Exception fetching mcp_api_configs.json: ${e.message}`);
-            localSetError(`Network error fetching mcp_api_configs.json. Check console.`);
-            console.error("AppContext.tsx: Network error fetching mcp_api_configs.json:", e);
-          }
-        }
-        setMcpApiConfigsInternal(loadedApiConfigs);
-
-        let currentActiveConfigNameFromStorage = localStorage.getItem('mcp-active-api-config-name');
-        let activeConfigToSet: McpApiConfig | null = null;
-
-        if (currentActiveConfigNameFromStorage) {
-          activeConfigToSet = loadedApiConfigs.find(c => c.configName === currentActiveConfigNameFromStorage) || null;
-        }
-        
-        if (!activeConfigToSet && loadedApiConfigs.length > 0) {
-          activeConfigToSet = loadedApiConfigs[0];
-        }
-        
-        setActiveApiConfigNameInternal(activeConfigToSet ? activeConfigToSet.configName : null);
-        if (activeConfigToSet) {
-          localStorage.setItem('mcp-active-api-config-name', activeConfigToSet.configName);
-          console.log("AppContext.tsx: Active API config set to:", activeConfigToSet.configName);
-        } else {
-          localStorage.removeItem('mcp-active-api-config-name');
-          console.log("AppContext.tsx: No active API config to set.");
-        }
-        
-        console.log("AppContext.tsx: Initializing McpClient...");
-        client = new McpClient(addAuditLogEntry);
-        await client.initialize(activeConfigToSet); 
-        setMcpClientInstance(client);
-        console.log("AppContext.tsx: McpClient instance set. IsReady:", client.ready, "InitError:", client.getInitializationError());
-
-
-        if (client.ready) {
-          try {
-            console.log("AppContext.tsx: McpClient is ready. Fetching server status...");
-            const status = await client.getServerStatus();
-            setMcpServerStatus(status);
-            console.log("AppContext.tsx: MCP Server status received:", status);
-            if (!status.isRunning) {
-              const serverName = client.getConfiguredServerName() || 'MCP Server';
-              const baseUrl = client.getConfiguredBaseUrl() || 'configured address';
-              const isDefaultConfigTryingToConnect = activeConfigToSet?.configName === "Default Local MCP Server";
-              const isNetworkError = status.error && (status.error.toLowerCase().includes("failed to fetch") || status.error.toLowerCase().includes("networkerror"));
-
-              if (isDefaultConfigTryingToConnect && isNetworkError) {
-                console.warn(`AppContext.tsx: Initial check: ${serverName} at ${baseUrl} appears to be offline. Global error suppressed for default config.`);
-                addAuditLogEntry('MCP_DEFAULT_OFFLINE_STARTUP', `Initial check: ${serverName} at ${baseUrl} offline. Global error suppressed for this startup.`);
-              } else if (status.error) {
-                  localSetError(`${serverName} at ${baseUrl} Issue: ${status.error}. File operations may fail.`);
-              } else {
-                  localSetError(`${serverName} at ${baseUrl} is not running (no specific error reported). File operations may fail.`);
-              }
-            }
-          } catch (e: any) {
-            const errorMessage = e.message || "Unknown error during MCP status check";
-            setMcpServerStatus({ isRunning: false, error: errorMessage });
-            localSetError(`Failed to get MCP status: ${errorMessage}. File operations may fail.`);
-            console.error("AppContext.tsx: Error fetching MCP status:", e);
-          }
-        } else {
-          const initError = client.getInitializationError() || "MCP Client failed to initialize (unknown reason).";
-          setMcpServerStatus({ isRunning: false, error: initError });
-          localSetError(initError + " File operations will likely fail.");
-           console.error("AppContext.tsx: MCP Client not ready after initialize. Error:", initError);
-        }
-        
-        const storedTools = localStorage.getItem('app-tools');
-        let currentToolsFromStorage: AiTool[] = [];
-        if (storedTools) {
-          try {
-            currentToolsFromStorage = JSON.parse(storedTools);
-          } catch (e: any) {
-            addAuditLogEntry('APP_TOOLS_LS_PARSE_ERROR', `Failed to parse tools from localStorage: ${e.message}`);
-          }
-        }
-        let currentTools = [...currentToolsFromStorage];
-
-        if (loadedUserMcpDefs?.mcpServers) {
-          const mcpServerTools: AiTool[] = Object.entries(loadedUserMcpDefs.mcpServers).map(([name, config]: [string, McpServerProcessConfig]) => ({
-            id: `mcp_process_${name.replace(/\s+/g, '_')}`, 
-            name: name,
-            description: config.description || `An MCP server process: ${name}`,
-            type: 'mcp_process',
-            usageExample: config.usageExample || `Consider using the '${name}' server process for relevant tasks.`,
-            mcpProcessDetails: {
-              command: config.command,
-              args: config.args,
-              cwd: config.cwd,
-            },
-            isAvailable: true, 
-          }));
-
-          mcpServerTools.forEach(mcpTool => {
-            if (!currentTools.some(t => t.name === mcpTool.name && t.type === 'mcp_process')) {
-              currentTools.push(mcpTool);
-            }
-          });
-           addAuditLogEntry('TOOLS_INIT_FROM_MCP_JSON', `${mcpServerTools.length} tools potentially derived from mcp.json.`);
-        }
-        setTools(currentTools);
-        console.log("AppContext.tsx: Tools initialized/loaded.");
-      
-      } catch (overallError: any) {
-        const errorMsg = `Critical error during app initialization: ${overallError.message || 'Unknown error'}`;
-        console.error("AppContext.tsx: CRITICAL INITIALIZATION ERROR:", errorMsg, overallError);
-        localSetError(errorMsg + " Some features may be unavailable. Please check console and refresh.");
-        setMcpServerStatus({ isRunning: false, error: "App initialization failed." });
-      } finally {
-        setIsMcpClientLoading(false);
-        console.log(
-            "=========================================================\n" +
-            "AppContext.tsx: initializeFullMcpClient finally block.\n" +
-            `  IsMcpClientLoading: false\n` +
-            `  McpClient Instance available: ${!!client}\n` +
-            `  McpClient Ready: ${client?.ready}\n` + // Changed to .ready
-            `  McpClient Initialization Error: ${client?.getInitializationError() || 'None'}\n` +
-            `  Current AppContext Error (from ref): ${currentErrorRef.current}\n` + // Use ref for logging
-            "========================================================="
-        );
+      } else if (activeConfigToSet) { // Client not ready but there was an active config
+        const initError = client.getInitializationError() || `MCP Client failed to initialize for ${activeConfigToSet.configName}.`;
+        setMcpServerStatus({ isRunning: false, error: initError });
+        localSetError(initError + " File operations will likely fail.");
+        console.error(`AppContext.tsx: MCP Client not ready after initialize for ${activeConfigToSet.configName}. Error:`, initError);
+      } else { // No active config to initialize with
+         setMcpServerStatus({ isRunning: false, error: "No active MCP configuration to initialize client." });
       }
+
+      // Load AI Tools (combining localStorage and mcp.json derived tools)
+      const storedToolsStr = localStorage.getItem('app-tools');
+      let toolsFromStorage: AiTool[] = [];
+      if (storedToolsStr) {
+        try { toolsFromStorage = JSON.parse(storedToolsStr); }
+        catch (e: any) { addAuditLogEntry('APP_TOOLS_LS_PARSE_ERROR', `Failed to parse tools from localStorage: ${e.message}`, 'warning'); }
+      }
+
+      let derivedToolsFromMcpJson: AiTool[] = [];
+      const currentMcpJson = userMcpServerDefinitions || (await (async () => { try { const r = await fetch('/mcp.json'); if (r.ok) return await r.json(); } catch { return null; } })());
+
+      if (currentMcpJson && currentMcpJson.mcpServers) {
+        derivedToolsFromMcpJson = Object.entries(currentMcpJson.mcpServers).map(([name, config]: [string, any]) => ({
+          id: `mcp_server_tool_${name.replace(/\s+/g, '_').toLowerCase()}`,
+          name: `${name} (MCP Server)`,
+          description: config.description || `Represents the '${name}' MCP server process defined in mcp.json. Use to interact with its capabilities if no specific tool is listed.`,
+          type: 'mcp_server_representation', // A new type to distinguish these
+          usageExample: `Consider if tasks related to '${name}' are needed.`,
+          isAvailable: true, // Assumed available if defined
+          mcpProcessDetails: { // Storing for reference, not direct execution via chat agent
+            command: config.command,
+            args: config.args,
+            cwd: config.cwd,
+          },
+        }));
+      }
+
+      // Combine and deduplicate tools
+      const finalTools: AiTool[] = [];
+      const toolNames = new Set<string>();
+      // Priority: localStorage (user's custom tools), then mcp.json derived (server representations)
+      [...toolsFromStorage, ...derivedToolsFromMcpJson].forEach(tool => {
+        if (!toolNames.has(tool.name)) {
+          finalTools.push(tool);
+          toolNames.add(tool.name);
+        }
+      });
+      setTools(finalTools);
+      addAuditLogEntry('TOOLS_INIT_COMPLETE', `${finalTools.length} AI tools loaded/derived.`);
+      console.log("AppContext.tsx: Tools initialized/loaded.", finalTools);
+
+      setIsMcpClientLoading(false);
+      addAuditLogEntry('APP_INIT_COMPLETE', 'Application initialization sequence complete.');
+      console.log(
+        "=========================================================\n" +
+        "AppContext.tsx: initializeSystem finally block equivalent.\n" +
+        `  IsMcpClientLoading: false\n` +
+        `  McpClient Instance available: ${!!mcpClientInstance}\n` + // Log current state value
+        `  McpClient Ready: ${mcpClientInstance?.ready}\n` +
+        `  McpClient Initialization Error: ${mcpClientInstance?.getInitializationError() || 'None'}\n` +
+        `  Current AppContext Error (from ref): ${currentErrorRef.current}\n` +
+        "========================================================="
+      );
     };
 
-    initializeFullMcpClient();
-  }, [addAuditLogEntry, localSetError]); 
+    initializeSystem();
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [addAuditLogEntry, localSetError]); // Keep deps minimal for this main init effect
 
 
   const updateMcpApiConfigs = useCallback((newConfigs: McpApiConfig[]) => {
@@ -361,12 +441,12 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
         setActiveApiConfigNameInternal(null);
         localStorage.removeItem('mcp-active-api-config-name');
         if (mcpClientInstance) {
-            await mcpClientInstance.initialize(null); 
+            await mcpClientInstance.initialize(null);
         }
         setMcpServerStatus({ isRunning: false, error: "No active API configuration." });
         addAuditLogEntry('MCP_ACTIVE_API_CONFIG_CLEARED', 'Active API config cleared.');
-        localSetError(null); 
-        setIsMcpClientLoading(false); 
+        localSetError(null);
+        setIsMcpClientLoading(false);
         return;
     }
 
@@ -374,11 +454,11 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
     if (newActiveConfig && mcpClientInstance) {
       setActiveApiConfigNameInternal(configName);
       localStorage.setItem('mcp-active-api-config-name', configName);
-      
-      await mcpClientInstance.initialize(newActiveConfig); 
+
+      await mcpClientInstance.initialize(newActiveConfig);
       addAuditLogEntry('MCP_ACTIVE_API_CONFIG_SET', `Active API config set to: ${configName}. McpClient re-initialized.`);
-      
-      setIsMcpClientLoading(true); 
+
+      setIsMcpClientLoading(true);
       try {
         const status = await mcpClientInstance.getServerStatus();
         setMcpServerStatus(status);
@@ -387,7 +467,7 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
         } else if (!status.isRunning) {
           localSetError(`MCP Server (${newActiveConfig.configName}) at ${newActiveConfig.baseApiUrl} is not running.`);
         } else {
-          localSetError(null); 
+          localSetError(null);
         }
       } catch (e: any) {
         const errorMsg = `Error fetching status for ${configName}: ${e.message}`;
@@ -402,7 +482,7 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
       const errorMsg = `Failed to set active API config: ${configName} not found or McpClient not available.`;
       localSetError(errorMsg);
       addAuditLogEntry('MCP_ACTIVE_API_CONFIG_ERROR', errorMsg);
-       setIsMcpClientLoading(false); 
+       setIsMcpClientLoading(false);
     }
   }, [mcpApiConfigs, mcpClientInstance, addAuditLogEntry, localSetError]);
 
@@ -417,7 +497,7 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
       document.documentElement.classList.remove('dark');
     }
   }, [theme]);
-  
+
   useEffect(() => {
     const loadFromLocalStorage = (key: string, setter: Function, itemName: string) => {
         const savedData = localStorage.getItem(key);
@@ -426,7 +506,7 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
                 setter(JSON.parse(savedData));
             } catch (e: any) {
                 console.error(`AppContext.tsx: Error parsing ${itemName} from localStorage:`, e.message);
-                addAuditLogEntry('LOCALSTORAGE_PARSE_ERROR', `Error parsing ${itemName}: ${e.message}. Data might be lost or reset.`);
+                addAuditLogEntry('LOCALSTORAGE_PARSE_ERROR', `Error parsing ${itemName}: ${e.message}. Data might be lost or reset.`, 'warning');
             }
         }
     };
@@ -487,11 +567,11 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
   const toggleTheme = useCallback(() => {
     setTheme((prevTheme) => (prevTheme === Theme.Light ? Theme.Dark : Theme.Light));
   }, []);
-  
+
   const toggleMainSidebar = useCallback(() => {
     setIsMainSidebarCollapsed(prev => !prev);
   }, []);
-  
+
   const extractPolicyReferencesFromFile = useCallback((file: EvidenceFile): PolicyReference[] => {
     const references: PolicyReference[] = [];
     if (!file.content && !file.summary) return references;
@@ -511,10 +591,10 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
                     break;
                 }
             }
-            references.push({ 
-                policyNumber, 
+            references.push({
+                policyNumber,
                 policyTitle: foundPolicy?.title,
-                manualVersion: foundManualName 
+                manualVersion: foundManualName
             });
         }
     }
@@ -523,9 +603,9 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
 
 
   const addFile = useCallback(async (
-      fileData: Omit<EvidenceFile, 'id' | 'tags' | 'annotations' | 'mcpPath' | 'isProcessing' | 'referencedPolicies'>, 
+      fileData: Omit<EvidenceFile, 'id' | 'tags' | 'annotations' | 'mcpPath' | 'isProcessing' | 'referencedPolicies'>,
       mcpPath: string,
-      originalFileNameForMcp: string, 
+      originalFileNameForMcp: string,
       contentForMcp: string
     ): Promise<EvidenceFile | null> => {
     if (!mcpClientInstance || !mcpClientInstance.ready) {
@@ -547,12 +627,12 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
       id: uuidv4(),
       tags: [],
       annotations: [],
-      mcpPath, 
+      mcpPath,
       isProcessing: false,
       metadata: { ...fileData.metadata, createdAt: new Date().toISOString(), modifiedAt: new Date().toISOString() },
       referencedPolicies: []
     };
-    
+
     const policyRefs = extractPolicyReferencesFromFile(newFile);
     newFile.referencedPolicies = policyRefs;
 
@@ -566,7 +646,7 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
       prevFiles.map((f) => {
         if (f.id === fileId) {
           const updatedFile = { ...f, ...updates, metadata: {...f.metadata, modifiedAt: new Date().toISOString()} };
-          if (updates.content || updates.summary || updates.name) { 
+          if (updates.content || updates.summary || updates.name) {
             updatedFile.referencedPolicies = extractPolicyReferencesFromFile(updatedFile);
             addAuditLogEntry('FILE_UPDATED_APP', `File ID "${fileId}" updated. Policies re-checked: ${updatedFile.referencedPolicies.length}. Changes: ${Object.keys(updates).join(', ')}`);
           } else {
@@ -591,13 +671,13 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
         } else {
              addAuditLogEntry('FILE_DELETED_MCP', `File "${fileToDelete.name}" deleted from MCP path "${fileToDelete.mcpPath}".`);
         }
-    } else if (fileToDelete.mcpPath) { 
+    } else if (fileToDelete.mcpPath) {
         localSetError(`MCP Client not ready (${mcpClientInstance?.getInitializationError() || 'unknown reason'}). File will be removed from app list only, not from server.`);
         addAuditLogEntry('DELETE_FILE_WARN_MCP_UNREADY', `MCP Client not ready for deleting ${fileToDelete.name} from ${fileToDelete.mcpPath}`);
     }
 
     setFiles((prevFiles) => prevFiles.filter((f) => f.id !== fileId));
-    setDynamicMarkersInternal(prev => { 
+    setDynamicMarkersInternal(prev => {
         const newMarkers = {...prev};
         delete newMarkers[fileId];
         return newMarkers;
@@ -629,7 +709,7 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
     const tagName = tags.find(t => t.id === tagId)?.name || 'Unknown Tag';
     addAuditLogEntry('TAG_REMOVED_FROM_FILE', `Tag "${tagName}" removed from file ID "${fileId}".`);
   }, [tags, addAuditLogEntry]);
-  
+
   const addTagToFile = useCallback((fileId: string, tag: Tag) => {
     setFiles(prevFiles => prevFiles.map(file => {
       if (file.id === fileId && !file.tags.find(t => t.id === tag.id)) {
@@ -652,13 +732,13 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
 
   const clearChatHistory = useCallback(() => {
     setChatHistory([]);
-    setSelectedFileIdsForContext([]); 
-    setSelectedWcatCaseIdsForContext([]); 
-    setSelectedToolIdsForContext([]); 
+    setSelectedFileIdsForContext([]);
+    setSelectedWcatCaseIdsForContext([]);
+    setSelectedToolIdsForContext([]);
     resetGeminiChatSession();
     addAuditLogEntry('CHAT_CLEARED', 'Chat history, AI session, and all context items cleared.');
   }, [addAuditLogEntry]);
-  
+
   const getWcatCaseById = useCallback((id: string) => {
     return wcatCases.find(c => c.id === id);
   }, [wcatCases]);
@@ -666,16 +746,16 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
   const addWcatCase = useCallback(async (caseData: Omit<WcatCase, 'id' | 'ingestedAt' | 'tags'>, fetchedPatternTags?: Tag[]): Promise<WcatCase> => {
     const newCase: WcatCase = {
       ...caseData,
-      id: caseData.decisionNumber, 
+      id: caseData.decisionNumber,
       ingestedAt: new Date().toISOString(),
-      tags: fetchedPatternTags || [], 
+      tags: fetchedPatternTags || [],
     };
     setWcatCases((prevCases) => {
       const existingIndex = prevCases.findIndex(c => c.decisionNumber === newCase.decisionNumber);
       if (existingIndex !== -1) {
         addAuditLogEntry('WCAT_CASE_UPDATED_ON_ADD', `WCAT Case "${newCase.decisionNumber}" updated as it already existed.`);
         const updatedCases = [...prevCases];
-        updatedCases[existingIndex] = { ...prevCases[existingIndex], ...newCase }; 
+        updatedCases[existingIndex] = { ...prevCases[existingIndex], ...newCase };
         return updatedCases;
       }
       addAuditLogEntry('WCAT_CASE_ADDED', `WCAT Case "${newCase.decisionNumber}" added to database. MCP Path: ${newCase.mcpPath || 'N/A'}`);
@@ -703,7 +783,7 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
         } else {
              addAuditLogEntry('WCAT_FILE_DELETED_MCP', `WCAT case file "${caseToDelete.decisionNumber}" deleted from MCP path "${caseToDelete.mcpPath}".`);
         }
-    } else if (caseToDelete.mcpPath) { 
+    } else if (caseToDelete.mcpPath) {
         localSetError(`MCP Client not ready for WCAT file deletion. File will be removed from app list only, not from server.`);
         addAuditLogEntry('DELETE_WCAT_FILE_WARN_MCP_UNREADY', `MCP Client not ready for deleting WCAT ${caseToDelete.decisionNumber} from ${caseToDelete.mcpPath}`);
     }
@@ -711,7 +791,7 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
     setWcatCases((prevCases) => prevCases.filter((c) => c.id !== caseId));
     addAuditLogEntry('WCAT_CASE_DELETED_APP', `WCAT Case "${caseToDelete.decisionNumber}" (ID: ${caseId}) deleted from app.`);
   }, [wcatCases, mcpClientInstance, addAuditLogEntry, localSetError]);
-  
+
   const generateAndAssignWcatPatternTags = useCallback(async (caseId: string): Promise<void> => {
     if (!apiKey) {
       localSetError("Cannot generate WCAT patterns: Gemini API Key is not set.");
@@ -732,7 +812,7 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
         const tag = addTag({ name: pStr, color: DEFAULT_WCAT_PATTERN_TAG_COLOR, criteria: 'wcat_pattern_generic', scope: 'wcat_pattern' });
         patternTags.push(tag);
       }
-      updateWcatCase(caseId, { tags: [...(targetCase.tags || []), ...patternTags].filter((t, i, self) => self.findIndex(s => s.id === t.id) === i) }); 
+      updateWcatCase(caseId, { tags: [...(targetCase.tags || []), ...patternTags].filter((t, i, self) => self.findIndex(s => s.id === t.id) === i) });
       addAuditLogEntry('WCAT_PATTERN_GEN_SUCCESS', `Patterns generated for ${targetCase.decisionNumber}: ${patternStrings.join(', ')}`);
     } catch (error: any) {
       localSetError(`Failed to generate WCAT patterns for ${targetCase.decisionNumber}: ${error.message}`);
@@ -749,7 +829,7 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
 
   const addPolicyManual = useCallback(async (
       manualInfo: { manualName: string; sourceUrl?: string; version?: string },
-      pdfContentString: string, 
+      pdfContentString: string,
       originalFileName: string
     ): Promise<PolicyManual | null> => {
     if (!mcpClientInstance || !mcpClientInstance.ready) {
@@ -765,7 +845,7 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
 
     const manualId = uuidv4();
     const mcpPath = `/policy_manuals/${manualId}_${originalFileName.replace(/[^a-zA-Z0-9_.-]/g, '_')}`;
-    
+
     const mcpSuccess = await mcpClientInstance.writeFile(mcpPath, pdfContentString);
     if (!mcpSuccess) {
         localSetError(`Failed to write policy manual "${manualInfo.manualName}" to MCP path "${mcpPath}".`);
@@ -774,8 +854,8 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
     }
     addAuditLogEntry('POLICY_MANUAL_WRITTEN_MCP', `Manual "${manualInfo.manualName}" written to MCP path "${mcpPath}".`);
 
-    const rawTextContent = pdfContentString; 
-    
+    const rawTextContent = pdfContentString;
+
     setIsLoading(true);
     let policyEntries: PolicyEntry[] = [];
     try {
@@ -798,7 +878,7 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
       rawTextContent,
       policyEntries,
       ingestedAt: new Date().toISOString(),
-      isProcessing: false, 
+      isProcessing: false,
     };
 
     setPolicyManuals(prevManuals => [...prevManuals, newManual]);
@@ -838,7 +918,7 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
   const findRelevantWcatCases = useCallback(async (queryText: string, associatedFile?: EvidenceFile): Promise<WcatCase[]> => {
     const queryLower = queryText.toLowerCase();
     const queryKeywords = queryLower.split(/\s+/).filter(kw => kw.length > 2);
-    
+
     let fileKeywords: string[] = [];
     let filePolicyNumbers: string[] = [];
 
@@ -855,28 +935,28 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
     const scoredCases = wcatCases.map(wcase => {
         let score = 0;
         const caseText = `${wcase.aiSummary.toLowerCase()} ${wcase.keywords.join(' ').toLowerCase()} ${wcase.outcomeSummary.toLowerCase()} ${wcase.tags.map(t => t.name).join(' ').toLowerCase()}`;
-        
+
         allSearchKeywords.forEach(kw => {
             if (caseText.includes(kw)) score += 1;
         });
 
         wcase.referencedPolicies.forEach(pol => {
-            if (filePolicyNumbers.includes(pol.policyNumber)) score += 5; 
+            if (filePolicyNumbers.includes(pol.policyNumber)) score += 5;
             if (queryLower.includes(pol.policyNumber.toLowerCase())) score += 3;
         });
 
-        wcase.tags.forEach(tag => { 
+        wcase.tags.forEach(tag => {
             if (tag.scope === 'wcat_pattern' && queryLower.includes(tag.name.toLowerCase())) {
                 score += 2;
             }
         });
-        
+
         return { wcase, score };
     });
 
     return scoredCases.filter(item => item.score > 0)
                       .sort((a, b) => b.score - a.score)
-                      .slice(0, 10) 
+                      .slice(0, 10)
                       .map(item => item.wcase);
   }, [wcatCases]);
 
@@ -888,7 +968,7 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
         messages: messagesToSave,
         relatedFileIds: fileIds,
         relatedWcatCaseIds: wcatIds,
-        relatedToolIds: toolIds, 
+        relatedToolIds: toolIds,
     };
     setSavedChatSessions(prev => [newSession, ...prev]);
     addAuditLogEntry('CHAT_SESSION_SAVED', `Session "${name}" saved with ${messagesToSave.length} messages.`);
@@ -898,10 +978,10 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
     const sessionToLoad = savedChatSessions.find(s => s.id === sessionId);
     if (sessionToLoad) {
         setChatHistory(sessionToLoad.messages);
-        setSelectedFileIdsForContext(sessionToLoad.relatedFileIds || []); 
+        setSelectedFileIdsForContext(sessionToLoad.relatedFileIds || []);
         setSelectedWcatCaseIdsForContext(sessionToLoad.relatedWcatCaseIds || []);
-        setSelectedToolIdsForContext(sessionToLoad.relatedToolIds || []); 
-        resetGeminiChatSession(); 
+        setSelectedToolIdsForContext(sessionToLoad.relatedToolIds || []);
+        resetGeminiChatSession();
         addAuditLogEntry('CHAT_SESSION_LOADED', `Session "${sessionToLoad.name}" loaded.`);
         return sessionToLoad;
     }
@@ -922,7 +1002,7 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
     const newTool: AiTool = {
         ...toolData,
         id: uuidv4(),
-        type: type, 
+        type: type,
     };
     setTools(prevTools => [...prevTools, newTool]);
     addAuditLogEntry('AI_TOOL_ADDED', `Custom tool "${newTool.name}" added.`);
@@ -974,8 +1054,8 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
 
   console.log("AppContext.tsx: AppProvider component function ENDING. Rendering children.");
   return (
-    <AppContext.Provider value={{ 
-      theme, toggleTheme, 
+    <AppContext.Provider value={{
+      theme, toggleTheme,
       files, addFile, updateFile, deleteFile, getFileById,
       tags, addTag, removeTagFromFile, addTagToFile,
       chatHistory, addChatMessage, clearChatHistory,

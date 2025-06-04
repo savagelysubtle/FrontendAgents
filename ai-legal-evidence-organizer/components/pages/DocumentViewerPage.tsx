@@ -28,6 +28,7 @@ const DocumentViewerPage: React.FC = () => {
   const [newAnnotationText, setNewAnnotationText] = useState('');
   const [relevantWcatCases, setRelevantWcatCases] = useState<WcatCase[]>([]);
   const [isLoadingLocal, setIsLoadingLocal] = useState<boolean>(false); // For local loading like file content
+  const [isDeleteConfirmModalOpen, setIsDeleteConfirmModalOpen] = useState(false); // State for delete confirmation modal
 
   const currentFileDynamicMarkers = useMemo(() => {
     if (fileId && dynamicMarkers[fileId]) {
@@ -132,12 +133,22 @@ const DocumentViewerPage: React.FC = () => {
 
   const handleDeleteFile = async () => {
     if (!file) return;
-    if (window.confirm(`Are you sure you want to delete "${file.name}"? This action will attempt to delete from the MCP server and remove from the app.`)) {
-        setAppIsLoadingGlobally(true);
-        await deleteFileFromContext(file.id);
-        setAppIsLoadingGlobally(false);
-        navigate('/');
+    setIsDeleteConfirmModalOpen(true);
+  };
+
+  const confirmDeleteFile = async () => {
+    if (!file) return;
+    setIsDeleteConfirmModalOpen(false);
+    setAppIsLoadingGlobally(true);
+    try {
+      await deleteFileFromContext(file.id);
+      addAuditLogEntry('FILE_DELETED_SUCCESS', `File "${file.name}" (ID: ${file.id}) deleted successfully.`);
+      navigate('/');
+    } catch (err: any) {
+      setError(`Failed to delete file "${file.name}": ${err.message}`);
+      addAuditLogEntry('FILE_DELETE_ERROR', `Error deleting file "${file.name}" (ID: ${file.id}): ${err.message}`, 'error');
     }
+    setAppIsLoadingGlobally(false);
   };
 
   useEffect(() => {
@@ -329,6 +340,37 @@ const DocumentViewerPage: React.FC = () => {
           </div>
         </div>
       </Modal>
+
+      {isDeleteConfirmModalOpen && file && (
+        <Modal
+          isOpen={isDeleteConfirmModalOpen}
+          onClose={() => setIsDeleteConfirmModalOpen(false)}
+          title={`Confirm Deletion: ${file.name}`}
+          footer={(
+            <div className="flex justify-end space-x-3">
+              <button
+                onClick={() => setIsDeleteConfirmModalOpen(false)}
+                className="px-4 py-2 bg-gray-300 hover:bg-gray-400 text-gray-800 rounded-md transition-colors"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={confirmDeleteFile}
+                className="px-4 py-2 bg-red-600 hover:bg-red-700 text-white rounded-md transition-colors"
+                disabled={isAppLoadingGlobally}
+              >
+                {isAppLoadingGlobally ? <LoadingSpinner size="sm" /> : 'Delete'}
+              </button>
+            </div>
+          )}
+        >
+          <p className="text-textSecondary">
+            Are you sure you want to delete the file "<span className="font-semibold">{file.name}</span>"?
+            This action will attempt to remove it from the MCP server (if applicable) and permanently delete it from this application.
+            This cannot be undone.
+          </p>
+        </Modal>
+      )}
     </div>
   );
 };

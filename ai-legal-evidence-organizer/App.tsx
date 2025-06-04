@@ -1,4 +1,3 @@
-
 import React from 'react';
 import { HashRouter, Routes, Route, Outlet } from 'react-router-dom';
 import Header from './components/Header';
@@ -57,22 +56,26 @@ class AppLayoutErrorBoundary extends React.Component<{children: React.ReactNode}
         </div>
       );
     }
-    return this.props.children; 
+    return this.props.children;
   }
 }
 
 const AppLayout: React.FC = () => {
-  const { theme, isMainSidebarCollapsed } = useAppContext(); 
+  const { theme, isMainSidebarCollapsed, isLoading } = useAppContext();
   return (
     <div className={`flex flex-col min-h-screen bg-background text-textPrimary theme-${theme}`}>
-      {/* Header is fixed, height usually 4rem (h-16 in Tailwind, from p-4) */}
       <Header />
-      {/* Main content area, flex-1 to take remaining height. pt-16 offsets the fixed header. */}
-      <div className="flex flex-1 pt-16"> 
+      {isLoading && (
+        <div className="fixed top-0 left-0 right-0 h-1 z-50">
+          <div className="h-full bg-primary animate-pulse-fast"></div> {/* Simple pulse, can be improved with a better animation */}
+        </div>
+      )}
+      {/* Main content area, flex-1 to take remaining height. Adjust pt-16 if header height changes. */}
+      <div className="flex flex-1 pt-16">
         <Sidebar />
         {/* Sidebar width is w-64. Main content margin adjusts based on sidebar state. */}
         <main className={`
-          flex-1 overflow-y-auto bg-background 
+          flex-1 overflow-y-auto bg-background
           transition-all duration-300 ease-in-out
           ${isMainSidebarCollapsed ? 'ml-0' : 'ml-64'}
         `}>
@@ -88,8 +91,8 @@ const App: React.FC = () => {
   return (
     <HashRouter>
       <Routes>
-        <Route 
-          path="/" 
+        <Route
+          path="/"
           element={
             <AppLayoutErrorBoundary>
               <AppLayout />
@@ -105,7 +108,7 @@ const App: React.FC = () => {
           <Route path="search" element={<SearchPage />} />
           <Route path="export" element={<ExportCenterPage />} />
           <Route path="settings" element={<SettingsPage />} />
-          
+
           {/* WCAT & Policy Routes */}
           <Route path="wcat-search" element={<WcatSearchPage />} />
           <Route path="wcat-database" element={<WcatPrecedentTablePage />} />
