@@ -1,6 +1,7 @@
 import { AbstractAgent, RunAgentInput, RunAgent, BaseEvent, EventType, Message as AgUiMessage, Tool as AgUiToolDefinition, Context as AgUiClientContextType, AgentConfig, TextMessageStartEvent, TextMessageContentEvent, TextMessageEndEvent, ToolCallStartEvent, ToolCallArgsEvent, ToolCallEndEvent, RunStartedEvent, RunErrorEvent, RunFinishedEvent, CustomEvent, ToolCall } from "@ag-ui/client"; // Renamed Context to AgUiClientContextType
 import { Observable, Subscriber } from "rxjs";
 import { v4 as uuidv4 } from 'uuid';
+import { Client as McpSDKClient } from "@modelcontextprotocol/sdk/client/index.js"; // Added for type safety
 
 // Local imports
 import { getChatResponseStream, resetChatSession as resetGeminiChat } from './geminiService';
@@ -106,8 +107,23 @@ export class GeminiAgUiAgent extends AbstractAgent {
 
     resetGeminiChat();
 
+    let mcpSdkClientForTools: McpSDKClient | null = null;
+    if (this.mcpClient && this.mcpClient.ready) {
+      mcpSdkClientForTools = this.mcpClient.getSdkClient();
+      if (mcpSdkClientForTools) {
+        // this.mcpClient.addAuditLog('MCP_AGENT_TOOLS_ENABLED', 'MCP SDK Client available, enabling for Gemini tools.');
+        console.log('MCP SDK Client available, enabling for Gemini tools via AgUiAgentService.');
+      } else {
+        // this.mcpClient.addAuditLog('MCP_AGENT_TOOLS_WARN_NO_SDKCLIENT', 'McpClient ready, but getSdkClient() returned null.');
+        console.warn('McpClient ready, but getSdkClient() returned null in AgUiAgentService.');
+      }
+    } else if (this.mcpClient) { // McpClient exists but is not ready
+        // this.mcpClient.addAuditLog('MCP_AGENT_TOOLS_UNAVAILABLE', `McpClient not ready. Error: ${this.mcpClient.getInitializationError()}`);
+        console.warn(`McpClient not ready in AgUiAgentService. Error: ${this.mcpClient.getInitializationError()}`);
+    }
+
     try {
-      const stream = await getChatResponseStream(userQuery, relevantFiles, relevantWcatCases, relevantAppAiTools);
+      const stream = await getChatResponseStream(userQuery, relevantFiles, relevantWcatCases, relevantAppAiTools, mcpSdkClientForTools);
 
       const streamingMessageId = `ai-msg-${uuidv4()}`;
       subscriber.next({ type: EventType.TEXT_MESSAGE_START, role: "assistant", messageId: streamingMessageId, timestamp: Date.now() } as TextMessageStartEvent);

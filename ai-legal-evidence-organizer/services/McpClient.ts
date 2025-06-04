@@ -386,6 +386,10 @@ export class McpClient {
     return null;
   }
 
+  public getSdkClient(): McpSDKClient | null {
+    return this.sdkClient;
+  }
+
   public getConfiguredBaseUrl(): string | null {
     return this.apiConfig && typeof this.apiConfig.baseApiUrl === 'string' ? this.apiConfig.baseApiUrl : null;
   }
