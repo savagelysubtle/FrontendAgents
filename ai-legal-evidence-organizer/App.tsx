@@ -18,21 +18,64 @@ import WcatSearchPage from './components/pages/wcat/WcatSearchPage';
 import WcatPrecedentTablePage from './components/pages/wcat/WcatPrecedentTablePage';
 import PolicyManualPage from './components/pages/wcat/PolicyManualPage';
 import PatternDashboardPage from './components/pages/wcat/PatternDashboardPage';
-import SideBySideViewerPage from './components/pages/SideBySideViewerPage'; // Added
+import SideBySideViewerPage from './components/pages/SideBySideViewerPage';
 
+// Simple Error Boundary for AppLayout
+class AppLayoutErrorBoundary extends React.Component<{children: React.ReactNode}, { hasError: boolean, error: Error | null, errorInfo: React.ErrorInfo | null }> {
+  constructor(props: {children: React.ReactNode}) {
+    super(props);
+    this.state = { hasError: false, error: null, errorInfo: null };
+  }
+
+  static getDerivedStateFromError(error: Error) {
+    // Update state so the next render will show the fallback UI.
+    return { hasError: true, error };
+  }
+
+  componentDidCatch(error: Error, errorInfo: React.ErrorInfo) {
+    // You can also log the error to an error reporting service
+    console.error("AppLayoutErrorBoundary caught an error:", error, errorInfo);
+    this.setState({ errorInfo });
+  }
+
+  render() {
+    if (this.state.hasError) {
+      // You can render any custom fallback UI
+      return (
+        <div className="p-6 text-center text-red-500 bg-red-50 dark:bg-red-900 min-h-screen flex flex-col items-center justify-center">
+          <h1 className="text-2xl font-bold mb-4">Application Layout Error</h1>
+          <p className="mb-2">There was an error rendering the main application layout.</p>
+          <p className="mb-4">This might be due to an issue with context initialization (AppContext) or a critical error in Header/Sidebar.</p>
+          <details className="text-left text-xs bg-white dark:bg-gray-800 p-2 border border-red-300 rounded w-full max-w-2xl">
+            <summary>Error Details</summary>
+            <pre className="whitespace-pre-wrap mt-2">
+              {this.state.error && this.state.error.toString()}
+              <br />
+              {this.state.errorInfo && this.state.errorInfo.componentStack}
+            </pre>
+          </details>
+        </div>
+      );
+    }
+    return this.props.children; 
+  }
+}
 
 const AppLayout: React.FC = () => {
   const { theme, isMainSidebarCollapsed } = useAppContext(); 
   return (
     <div className={`flex flex-col min-h-screen bg-background text-textPrimary theme-${theme}`}>
+      {/* Header is fixed, height usually 4rem (h-16 in Tailwind, from p-4) */}
       <Header />
-      <div className="flex flex-1 pt-16"> {/* pt-16 to offset fixed header */}
+      {/* Main content area, flex-1 to take remaining height. pt-16 offsets the fixed header. */}
+      <div className="flex flex-1 pt-16"> 
         <Sidebar />
+        {/* Sidebar width is w-64. Main content margin adjusts based on sidebar state. */}
         <main className={`
           flex-1 overflow-y-auto bg-background 
           transition-all duration-300 ease-in-out
           ${isMainSidebarCollapsed ? 'ml-0' : 'ml-64'}
-        `}> {/* ml-64 to offset fixed sidebar */}
+        `}>
           <Outlet />
         </main>
       </div>
@@ -41,10 +84,18 @@ const AppLayout: React.FC = () => {
 };
 
 const App: React.FC = () => {
+  console.log("App.tsx: App component rendering...");
   return (
     <HashRouter>
       <Routes>
-        <Route path="/" element={<AppLayout />}>
+        <Route 
+          path="/" 
+          element={
+            <AppLayoutErrorBoundary>
+              <AppLayout />
+            </AppLayoutErrorBoundary>
+          }
+        >
           <Route index element={<DashboardPage />} />
           <Route path="ingestion" element={<FileIngestionPage />} />
           <Route path="viewer" element={<DocumentViewerPage />} />
@@ -58,9 +109,11 @@ const App: React.FC = () => {
           {/* WCAT & Policy Routes */}
           <Route path="wcat-search" element={<WcatSearchPage />} />
           <Route path="wcat-database" element={<WcatPrecedentTablePage />} />
-          <Route path="wcat-database/:decisionNumber" element={<WcatPrecedentTablePage />} /> {/* For linking to specific case view */}
+          <Route path="wcat-database/:decisionNumber" element={<WcatPrecedentTablePage />} />
           <Route path="policy-manual" element={<PolicyManualPage />} />
-          <Route path="policy-manual/:policyNumber" element={<PolicyManualPage />} /> {/* For linking to specific policy */}
+          <Route path="policy-manual/:manualId" element={<PolicyManualPage />}> {/* Changed to manualId for consistency */}
+            <Route path=":policyNumber" element={<PolicyManualPage />} /> {/* Nested for policy number */}
+          </Route>
           <Route path="pattern-dashboard" element={<PatternDashboardPage />} />
 
           {/* Side-by-Side Comparison Route */}

@@ -100,7 +100,7 @@ const PolicyManualPage: React.FC = () => {
       setAppError("Gemini API Key not set. Cannot index manual.");
       return;
     }
-    if (!mcpClient || !mcpClient.isReady()) {
+    if (!mcpClient || !mcpClient.ready) {
       setAppError("MCP Client not ready. Cannot save manual PDF.");
       return;
     }

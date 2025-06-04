@@ -37,7 +37,7 @@ const SettingsPage: React.FC = () => {
 
 
   const fetchMcpStatus = async () => {
-    if (mcpClient && mcpClient.isReady()) {
+    if (mcpClient && mcpClient.ready) {
       try {
         const status = await mcpClient.getServerStatus();
         setMcpServerStatus(status); 
@@ -64,8 +64,8 @@ const SettingsPage: React.FC = () => {
 
 
   const handleAddDirectory = async () => {
-    if (newAllowedDir.trim() === '' || !mcpClient || !mcpClient.isReady()) {
-        setError(!mcpClient || !mcpClient.isReady() ? "MCP Client not ready." : "Directory path cannot be empty.");
+    if (newAllowedDir.trim() === '' || !mcpClient || !mcpClient.ready) {
+        setError(!mcpClient || !mcpClient.ready ? "MCP Client not ready." : "Directory path cannot be empty.");
         return;
     }
     try {
@@ -272,7 +272,7 @@ const SettingsPage: React.FC = () => {
         
         <h4 className="text-lg font-medium text-textPrimary mt-4 mb-1">Server Status (using "{selectedActiveConfigInDropdown || 'N/A'}")</h4>
          {isMcpClientLoading && <LoadingSpinner message="Initializing MCP Client..." />}
-         {!isMcpClientLoading && mcpClient && !mcpClient.isReady() && (
+         {!isMcpClientLoading && mcpClient && !mcpClient.ready && (
             <p className="text-sm text-red-500">MCP Client Error: {mcpClient.getInitializationError()}</p>
          )}
         <div className="text-sm space-y-1 text-textSecondary">
@@ -310,7 +310,7 @@ const SettingsPage: React.FC = () => {
             <button 
               onClick={handleAddDirectory} 
               className="bg-secondary text-white px-4 py-2 rounded-lg hover:bg-secondary-dark transition-colors"
-              disabled={newAllowedDir.trim() === '' || !mcpClient || !mcpClient.isReady()}
+              disabled={newAllowedDir.trim() === '' || !mcpClient || !mcpClient.ready}
             >
               Add
             </button>

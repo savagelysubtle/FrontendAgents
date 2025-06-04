@@ -95,7 +95,7 @@ const SideBySideViewerPage: React.FC = () => {
       let fetchedEvidenceFile = getFileById(evidenceFileId);
       const fetchedWcatCase = getWcatCaseById(wcatCaseId);
 
-      if (fetchedEvidenceFile && !fetchedEvidenceFile.content && fetchedEvidenceFile.type !== 'img' && fetchedEvidenceFile.mcpPath && mcpClient && mcpClient.isReady()) {
+      if (fetchedEvidenceFile && !fetchedEvidenceFile.content && fetchedEvidenceFile.type !== 'img' && fetchedEvidenceFile.mcpPath && mcpClient && mcpClient.ready) {
         try {
             addAuditLogEntry('SBS_MCP_READ_START', `Reading ${fetchedEvidenceFile.name} from ${fetchedEvidenceFile.mcpPath}`);
             const mcpFile = await mcpClient.readFile(fetchedEvidenceFile.mcpPath);

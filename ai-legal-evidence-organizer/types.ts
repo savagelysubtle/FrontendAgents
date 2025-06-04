@@ -211,3 +211,25 @@ export interface AiTool {
   };
   isAvailable?: boolean; // Could be used if a tool's backend (mcp_process) has a health check
 }
+
+// Phase 4: MCP Server Tool and AG-UI Frontend Tool Definitions
+export interface McpServerToolDef {
+  name: string;
+  description?: string;
+  inputSchema: any; // JSONSchema7
+  outputSchema?: any; // JSONSchema7
+  annotations?: Record<string, any>;
+}
+
+export interface AgUiFrontendToolDef {
+  name: string;
+  description: string;
+  parametersSchema: any; // JSONSchema7 for parameters
+}
+
+// Phase 5: DynamicMarker for Generative UI
+export interface DynamicMarker {
+  text: string;
+  type: string; // e.g., 'admission', 'contradiction', 'critical_quote'
+  page?: number; // Optional page number
+}

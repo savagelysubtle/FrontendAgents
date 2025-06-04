@@ -33,7 +33,7 @@ const ExportCenterPage: React.FC = () => {
       setError("Please select at least one file to export.");
       return;
     }
-    if (!mcpClient || !mcpClient.isReady()) {
+    if (!mcpClient || !mcpClient.ready) {
       setError(`MCP Client is not ready. Status: ${isMcpClientLoading ? 'Loading config...' : (mcpClient?.getInitializationError() || 'Unknown error')}. Export aborted.`);
       return;
     }
@@ -98,7 +98,7 @@ const ExportCenterPage: React.FC = () => {
     <div className="p-6 space-y-6">
       <h2 className="text-3xl font-semibold text-textPrimary">Export Center</h2>
 
-       { (isMcpClientLoading || (mcpClient && !mcpClient.isReady())) && (
+       { (isMcpClientLoading || (mcpClient && !mcpClient.ready)) && (
         <div className="p-4 bg-yellow-100 dark:bg-yellow-900 border border-yellow-500 text-yellow-700 dark:text-yellow-300 rounded-md">
           MCP Client Status: {isMcpClientLoading ? 'Initializing...' : (mcpClient?.getInitializationError() || 'Not ready.')} Export operations might fail.
         </div>
@@ -153,7 +153,7 @@ const ExportCenterPage: React.FC = () => {
 
       <button
         onClick={handleExport}
-        disabled={isAppLoading || selectedFileIds.length === 0 || !mcpClient?.isReady()}
+        disabled={isAppLoading || selectedFileIds.length === 0 || !mcpClient?.ready}
         className="w-full bg-primary text-white px-6 py-3 rounded-lg hover:bg-primary-dark transition-colors disabled:opacity-50 text-lg font-semibold flex items-center justify-center"
       >
         {isAppLoading ? <LoadingSpinner size="sm" /> : (
@@ -161,7 +161,7 @@ const ExportCenterPage: React.FC = () => {
             <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-5 h-5 mr-2">
                 <path strokeLinecap="round" strokeLinejoin="round" d="M3 16.5v2.25A2.25 2.25 0 005.25 21h13.5A2.25 2.25 0 0021 18.75V16.5M16.5 12L12 16.5m0 0L7.5 12m4.5 4.5V3" />
             </svg>
-            { !mcpClient?.isReady() ? 'MCP Client Not Ready' : 'Export Selected Files'}
+            { !mcpClient?.ready ? 'MCP Client Not Ready' : 'Export Selected Files'}
             </>
         )}
       </button>

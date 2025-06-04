@@ -1,10 +1,12 @@
 
-import React, { createContext, useContext, useState, useEffect, useCallback, ReactNode } from 'react';
-import { EvidenceFile, Tag, ChatMessage, AuditLogEntry, Theme, McpServerStatus, WcatCase, PolicyManual, PolicyEntry, PolicyReference, SavedChatSession, McpUserProvidedServers, McpApiConfig, AiTool, McpServerProcessConfig } from '../types';
+import React, { createContext, useContext, useState, useEffect, useCallback, ReactNode, useRef } from 'react';
+import { EvidenceFile, Tag, ChatMessage, AuditLogEntry, Theme, McpServerStatus, WcatCase, PolicyManual, PolicyEntry, PolicyReference, SavedChatSession, McpUserProvidedServers, McpApiConfig, AiTool, McpServerProcessConfig, DynamicMarker } from '../types';
 import { v4 as uuidv4 } from 'uuid'; 
 import { POLICY_NUMBER_REGEX, DEFAULT_WCAT_PATTERN_TAG_COLOR } from '../constants';
 import { McpClient } from '../services/McpClient'; 
 import { identifyWcatCasePatterns, resetChatSession as resetGeminiChatSession, extractPolicyEntriesFromManualText } from '../services/geminiService'; 
+
+console.log("AppContext.tsx: Module loaded.");
 
 interface AppContextType {
   theme: Theme;
@@ -78,11 +80,16 @@ interface AppContextType {
   toggleFileContext: (fileId: string) => void;
   selectedWcatCaseIdsForContext: string[];
   toggleWcatCaseContext: (caseId: string) => void;
+
+  // Dynamic Markers for Generative UI
+  dynamicMarkers: Record<string, DynamicMarker[]>;
+  setDynamicMarkersForFile: (fileId: string, markers: DynamicMarker[]) => void;
 }
 
 const AppContext = createContext<AppContextType | undefined>(undefined);
 
 export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => {
+  console.log("AppContext.tsx: AppProvider component function STARTED.");
   const [theme, setTheme] = useState<Theme>(() => {
     const storedTheme = localStorage.getItem('app-theme') as Theme;
     return storedTheme || Theme.Dark;
@@ -94,6 +101,12 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
   
   const [isLoading, setIsLoading] = useState<boolean>(false);
   const [currentError, setCurrentError] = useState<string | null>(null);
+  const currentErrorRef = useRef(currentError); // Ref for currentError
+  useEffect(() => {
+    currentErrorRef.current = currentError;
+  }, [currentError]);
+
+
   const [apiKey, setApiKeyInternal] = useState<string | null>(process.env.API_KEY || null);
 
   const [wcatCases, setWcatCases] = useState<WcatCase[]>([]);
@@ -119,6 +132,9 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
   const [selectedFileIdsForContext, setSelectedFileIdsForContext] = useState<string[]>([]);
   const [selectedWcatCaseIdsForContext, setSelectedWcatCaseIdsForContext] = useState<string[]>([]);
 
+  // Dynamic Markers State
+  const [dynamicMarkers, setDynamicMarkersInternal] = useState<Record<string, DynamicMarker[]>>({});
+
 
   const addAuditLogEntry = useCallback((action: string, details: string) => {
     const newEntry: AuditLogEntry = {
@@ -133,145 +149,205 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
   const localSetError = useCallback((error: string | null) => { 
     setCurrentError(error);
     if (error) {
-        console.error("Application Error:", error);
+        console.error("AppContext: Application Error Set:", error);
+        addAuditLogEntry('APPLICATION_ERROR_SET', error);
     }
-  }, []);
+  }, [addAuditLogEntry]);
   
-  // Initialize McpClient and handle API config loading
   useEffect(() => {
+    console.log("AppContext.tsx: initializeFullMcpClient useEffect TRIGGERED.");
     const initializeFullMcpClient = async () => {
+      console.log("AppContext.tsx: initializeFullMcpClient async function STARTED.");
       setIsMcpClientLoading(true);
       localSetError(null); 
+      let client: McpClient | null = null; 
       
-      let loadedUserMcpDefs: McpUserProvidedServers | null = null;
-      try {
-        const response = await fetch('/mcp.json');
-        if (response.ok) {
-          loadedUserMcpDefs = await response.json();
-          setUserMcpServerDefinitions(loadedUserMcpDefs);
-          addAuditLogEntry('MCP_USER_DEFS_LOADED', 'User MCP server definitions (mcp.json) loaded.');
-        } else {
-          addAuditLogEntry('MCP_USER_DEFS_LOAD_ERROR', `Failed to load mcp.json: ${response.statusText}`);
-        }
-      } catch (e: any) {
-        addAuditLogEntry('MCP_USER_DEFS_LOAD_ERROR', `Exception loading mcp.json: ${e.message}`);
-      }
-
-      let loadedApiConfigs: McpApiConfig[] = [];
-      const storedApiConfigs = localStorage.getItem('mcp-api-configurations');
-      if (storedApiConfigs) {
+      try { 
+        let loadedUserMcpDefs: McpUserProvidedServers | null = null;
         try {
-          loadedApiConfigs = JSON.parse(storedApiConfigs);
-          addAuditLogEntry('MCP_API_CONFIGS_LOADED_LS', 'API connection configurations loaded from localStorage.');
-        } catch (e) {
-          addAuditLogEntry('MCP_API_CONFIGS_PARSE_LS_ERROR', 'Failed to parse API configs from localStorage, loading defaults.');
-        }
-      }
-      
-      if (loadedApiConfigs.length === 0) {
-        try {
-          const response = await fetch('/mcp_api_configs.json');
-          if (response.ok) {
-            loadedApiConfigs = await response.json();
-            addAuditLogEntry('MCP_API_CONFIGS_LOADED_DEFAULT', 'Default API connection configurations loaded from mcp_api_configs.json.');
-          } else {
-             addAuditLogEntry('MCP_API_CONFIGS_LOAD_DEFAULT_ERROR', `Failed to load default mcp_api_configs.json: ${response.statusText}`);
-          }
-        } catch (e: any) {
-           addAuditLogEntry('MCP_API_CONFIGS_LOAD_DEFAULT_ERROR', `Exception loading mcp_api_configs.json: ${e.message}`);
-        }
-      }
-      setMcpApiConfigsInternal(loadedApiConfigs);
-
-      let currentActiveConfigNameFromStorage = localStorage.getItem('mcp-active-api-config-name');
-      let activeConfigToSet: McpApiConfig | null = null;
-
-      if (currentActiveConfigNameFromStorage) {
-        activeConfigToSet = loadedApiConfigs.find(c => c.configName === currentActiveConfigNameFromStorage) || null;
-      }
-      
-      if (!activeConfigToSet && loadedApiConfigs.length > 0) {
-        activeConfigToSet = loadedApiConfigs[0];
-      }
-      
-      setActiveApiConfigNameInternal(activeConfigToSet ? activeConfigToSet.configName : null);
-      if (activeConfigToSet) {
-        localStorage.setItem('mcp-active-api-config-name', activeConfigToSet.configName);
-      } else {
-        localStorage.removeItem('mcp-active-api-config-name');
-      }
-      
-      const client = new McpClient(addAuditLogEntry);
-      client.initialize(activeConfigToSet); 
-      setMcpClientInstance(client);
-
-      if (client.isReady()) {
-        try {
-          const status = await client.getServerStatus();
-          setMcpServerStatus(status);
-
-          if (!status.isRunning) {
-            const serverName = client.getConfiguredServerName() || 'MCP Server';
-            const baseUrl = client.getConfiguredBaseUrl() || 'configured address';
-            const isDefaultConfigTryingToConnect = activeConfigToSet?.configName === "Default Local MCP Server";
-            const isNetworkError = status.error && (status.error.toLowerCase().includes("failed to fetch") || status.error.toLowerCase().includes("networkerror"));
-
-            if (isDefaultConfigTryingToConnect && isNetworkError) {
-              console.warn(`Initial check: ${serverName} at ${baseUrl} appears to be offline. Global error suppressed for default config.`);
-              addAuditLogEntry('MCP_DEFAULT_OFFLINE_STARTUP', `Initial check: ${serverName} at ${baseUrl} offline. Global error suppressed for this startup.`);
-            } else if (status.error) {
-                localSetError(`${serverName} at ${baseUrl} Issue: ${status.error}. File operations may fail.`);
-            } else {
-                localSetError(`${serverName} at ${baseUrl} is not running (no specific error reported). File operations may fail.`);
+          console.log("AppContext.tsx: Fetching mcp.json...");
+          const responseMcpJson = await fetch('/mcp.json');
+          console.log("AppContext.tsx: mcp.json fetch status:", responseMcpJson.status);
+          if (responseMcpJson.ok) {
+            try {
+              loadedUserMcpDefs = await responseMcpJson.json();
+              setUserMcpServerDefinitions(loadedUserMcpDefs);
+              addAuditLogEntry('MCP_USER_DEFS_LOADED', 'User MCP server definitions (mcp.json) loaded.');
+              console.log("AppContext.tsx: mcp.json loaded and parsed successfully.");
+            } catch (jsonParseError: any) {
+              addAuditLogEntry('MCP_USER_DEFS_PARSE_ERROR', `Failed to parse mcp.json: ${jsonParseError.message}`);
+              localSetError(`Error parsing mcp.json. Check console for details.`);
+              console.error("AppContext.tsx: Error parsing mcp.json:", jsonParseError);
             }
+          } else {
+            addAuditLogEntry('MCP_USER_DEFS_LOAD_ERROR', `Failed to load mcp.json: ${responseMcpJson.statusText} (status ${responseMcpJson.status})`);
+            localSetError(`Failed to load mcp.json (status ${responseMcpJson.status}). Ensure it exists and is accessible.`);
+            console.error("AppContext.tsx: Failed to load mcp.json, status:", responseMcpJson.status);
           }
         } catch (e: any) {
-          const errorMessage = e.message || "Unknown error during MCP status check";
-          setMcpServerStatus({ isRunning: false, error: errorMessage });
-          localSetError(`Failed to get MCP status: ${errorMessage}. File operations may fail.`);
+          addAuditLogEntry('MCP_USER_DEFS_FETCH_ERROR', `Exception fetching mcp.json: ${e.message}`);
+          localSetError(`Network error fetching mcp.json. Check console.`);
+          console.error("AppContext.tsx: Network error fetching mcp.json:", e);
         }
-      } else {
-        const initError = client.getInitializationError() || "MCP Client failed to initialize (unknown reason).";
-        setMcpServerStatus({ isRunning: false, error: initError });
-        localSetError(initError + " File operations will likely fail.");
-      }
-      
-      // Initialize Tools from mcp.json after other configs are set
-      const storedTools = localStorage.getItem('app-tools');
-      let currentTools: AiTool[] = storedTools ? JSON.parse(storedTools) : [];
 
-      if (loadedUserMcpDefs?.mcpServers) {
-        const mcpServerTools: AiTool[] = Object.entries(loadedUserMcpDefs.mcpServers).map(([name, config]: [string, McpServerProcessConfig]) => ({
-          id: `mcp_process_${name.replace(/\s+/g, '_')}`, // Generate a stable ID
-          name: name,
-          description: config.description || `An MCP server process: ${name}`,
-          type: 'mcp_process',
-          usageExample: config.usageExample || `Consider using the '${name}' server process for relevant tasks.`,
-          mcpProcessDetails: {
-            command: config.command,
-            args: config.args,
-            cwd: config.cwd,
-          },
-          isAvailable: true, // Assume available; could be enhanced with health checks
-        }));
-
-        // Add new MCP tools if not already present (by name, to avoid duplicates if mcp.json changes subtly but tool is same)
-        mcpServerTools.forEach(mcpTool => {
-          if (!currentTools.some(t => t.name === mcpTool.name && t.type === 'mcp_process')) {
-            currentTools.push(mcpTool);
+        let loadedApiConfigs: McpApiConfig[] = [];
+        const storedApiConfigs = localStorage.getItem('mcp-api-configurations');
+        if (storedApiConfigs) {
+          try {
+            loadedApiConfigs = JSON.parse(storedApiConfigs);
+            addAuditLogEntry('MCP_API_CONFIGS_LOADED_LS', 'API connection configurations loaded from localStorage.');
+          } catch (e: any) {
+            addAuditLogEntry('MCP_API_CONFIGS_PARSE_LS_ERROR', `Failed to parse API configs from localStorage: ${e.message}, loading defaults.`);
           }
-        });
-         addAuditLogEntry('TOOLS_INIT_FROM_MCP_JSON', `${mcpServerTools.length} tools potentially derived from mcp.json.`);
+        }
+        
+        if (loadedApiConfigs.length === 0) {
+          try {
+            console.log("AppContext.tsx: Fetching mcp_api_configs.json...");
+            const responseApiConfigsJson = await fetch('/mcp_api_configs.json');
+            console.log("AppContext.tsx: mcp_api_configs.json fetch status:", responseApiConfigsJson.status);
+            if (responseApiConfigsJson.ok) {
+              try {
+                loadedApiConfigs = await responseApiConfigsJson.json();
+                addAuditLogEntry('MCP_API_CONFIGS_LOADED_DEFAULT', 'Default API connection configurations loaded from mcp_api_configs.json.');
+                 console.log("AppContext.tsx: mcp_api_configs.json loaded and parsed successfully.");
+              } catch (jsonParseError: any) {
+                addAuditLogEntry('MCP_API_CONFIGS_PARSE_DEFAULT_ERROR', `Failed to parse mcp_api_configs.json: ${jsonParseError.message}`);
+                localSetError(`Error parsing mcp_api_configs.json. Check console for details.`);
+                console.error("AppContext.tsx: Error parsing mcp_api_configs.json:", jsonParseError);
+              }
+            } else {
+              addAuditLogEntry('MCP_API_CONFIGS_LOAD_DEFAULT_ERROR', `Failed to load default mcp_api_configs.json: ${responseApiConfigsJson.statusText} (status ${responseApiConfigsJson.status})`);
+              localSetError(`Failed to load mcp_api_configs.json (status ${responseApiConfigsJson.status}). Ensure it exists and is accessible.`);
+              console.error("AppContext.tsx: Failed to load mcp_api_configs.json, status:", responseApiConfigsJson.status);
+            }
+          } catch (e: any) {
+            addAuditLogEntry('MCP_API_CONFIGS_FETCH_DEFAULT_ERROR', `Exception fetching mcp_api_configs.json: ${e.message}`);
+            localSetError(`Network error fetching mcp_api_configs.json. Check console.`);
+            console.error("AppContext.tsx: Network error fetching mcp_api_configs.json:", e);
+          }
+        }
+        setMcpApiConfigsInternal(loadedApiConfigs);
+
+        let currentActiveConfigNameFromStorage = localStorage.getItem('mcp-active-api-config-name');
+        let activeConfigToSet: McpApiConfig | null = null;
+
+        if (currentActiveConfigNameFromStorage) {
+          activeConfigToSet = loadedApiConfigs.find(c => c.configName === currentActiveConfigNameFromStorage) || null;
+        }
+        
+        if (!activeConfigToSet && loadedApiConfigs.length > 0) {
+          activeConfigToSet = loadedApiConfigs[0];
+        }
+        
+        setActiveApiConfigNameInternal(activeConfigToSet ? activeConfigToSet.configName : null);
+        if (activeConfigToSet) {
+          localStorage.setItem('mcp-active-api-config-name', activeConfigToSet.configName);
+          console.log("AppContext.tsx: Active API config set to:", activeConfigToSet.configName);
+        } else {
+          localStorage.removeItem('mcp-active-api-config-name');
+          console.log("AppContext.tsx: No active API config to set.");
+        }
+        
+        console.log("AppContext.tsx: Initializing McpClient...");
+        client = new McpClient(addAuditLogEntry);
+        await client.initialize(activeConfigToSet); 
+        setMcpClientInstance(client);
+        console.log("AppContext.tsx: McpClient instance set. IsReady:", client.ready, "InitError:", client.getInitializationError());
+
+
+        if (client.ready) {
+          try {
+            console.log("AppContext.tsx: McpClient is ready. Fetching server status...");
+            const status = await client.getServerStatus();
+            setMcpServerStatus(status);
+            console.log("AppContext.tsx: MCP Server status received:", status);
+            if (!status.isRunning) {
+              const serverName = client.getConfiguredServerName() || 'MCP Server';
+              const baseUrl = client.getConfiguredBaseUrl() || 'configured address';
+              const isDefaultConfigTryingToConnect = activeConfigToSet?.configName === "Default Local MCP Server";
+              const isNetworkError = status.error && (status.error.toLowerCase().includes("failed to fetch") || status.error.toLowerCase().includes("networkerror"));
+
+              if (isDefaultConfigTryingToConnect && isNetworkError) {
+                console.warn(`AppContext.tsx: Initial check: ${serverName} at ${baseUrl} appears to be offline. Global error suppressed for default config.`);
+                addAuditLogEntry('MCP_DEFAULT_OFFLINE_STARTUP', `Initial check: ${serverName} at ${baseUrl} offline. Global error suppressed for this startup.`);
+              } else if (status.error) {
+                  localSetError(`${serverName} at ${baseUrl} Issue: ${status.error}. File operations may fail.`);
+              } else {
+                  localSetError(`${serverName} at ${baseUrl} is not running (no specific error reported). File operations may fail.`);
+              }
+            }
+          } catch (e: any) {
+            const errorMessage = e.message || "Unknown error during MCP status check";
+            setMcpServerStatus({ isRunning: false, error: errorMessage });
+            localSetError(`Failed to get MCP status: ${errorMessage}. File operations may fail.`);
+            console.error("AppContext.tsx: Error fetching MCP status:", e);
+          }
+        } else {
+          const initError = client.getInitializationError() || "MCP Client failed to initialize (unknown reason).";
+          setMcpServerStatus({ isRunning: false, error: initError });
+          localSetError(initError + " File operations will likely fail.");
+           console.error("AppContext.tsx: MCP Client not ready after initialize. Error:", initError);
+        }
+        
+        const storedTools = localStorage.getItem('app-tools');
+        let currentToolsFromStorage: AiTool[] = [];
+        if (storedTools) {
+          try {
+            currentToolsFromStorage = JSON.parse(storedTools);
+          } catch (e: any) {
+            addAuditLogEntry('APP_TOOLS_LS_PARSE_ERROR', `Failed to parse tools from localStorage: ${e.message}`);
+          }
+        }
+        let currentTools = [...currentToolsFromStorage];
+
+        if (loadedUserMcpDefs?.mcpServers) {
+          const mcpServerTools: AiTool[] = Object.entries(loadedUserMcpDefs.mcpServers).map(([name, config]: [string, McpServerProcessConfig]) => ({
+            id: `mcp_process_${name.replace(/\s+/g, '_')}`, 
+            name: name,
+            description: config.description || `An MCP server process: ${name}`,
+            type: 'mcp_process',
+            usageExample: config.usageExample || `Consider using the '${name}' server process for relevant tasks.`,
+            mcpProcessDetails: {
+              command: config.command,
+              args: config.args,
+              cwd: config.cwd,
+            },
+            isAvailable: true, 
+          }));
+
+          mcpServerTools.forEach(mcpTool => {
+            if (!currentTools.some(t => t.name === mcpTool.name && t.type === 'mcp_process')) {
+              currentTools.push(mcpTool);
+            }
+          });
+           addAuditLogEntry('TOOLS_INIT_FROM_MCP_JSON', `${mcpServerTools.length} tools potentially derived from mcp.json.`);
+        }
+        setTools(currentTools);
+        console.log("AppContext.tsx: Tools initialized/loaded.");
+      
+      } catch (overallError: any) {
+        const errorMsg = `Critical error during app initialization: ${overallError.message || 'Unknown error'}`;
+        console.error("AppContext.tsx: CRITICAL INITIALIZATION ERROR:", errorMsg, overallError);
+        localSetError(errorMsg + " Some features may be unavailable. Please check console and refresh.");
+        setMcpServerStatus({ isRunning: false, error: "App initialization failed." });
+      } finally {
+        setIsMcpClientLoading(false);
+        console.log(
+            "=========================================================\n" +
+            "AppContext.tsx: initializeFullMcpClient finally block.\n" +
+            `  IsMcpClientLoading: false\n` +
+            `  McpClient Instance available: ${!!client}\n` +
+            `  McpClient Ready: ${client?.ready}\n` + // Changed to .ready
+            `  McpClient Initialization Error: ${client?.getInitializationError() || 'None'}\n` +
+            `  Current AppContext Error (from ref): ${currentErrorRef.current}\n` + // Use ref for logging
+            "========================================================="
+        );
       }
-      setTools(currentTools);
-
-
-      setIsMcpClientLoading(false);
     };
 
     initializeFullMcpClient();
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [addAuditLogEntry]); 
+  }, [addAuditLogEntry, localSetError]); 
 
 
   const updateMcpApiConfigs = useCallback((newConfigs: McpApiConfig[]) => {
@@ -285,7 +361,7 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
         setActiveApiConfigNameInternal(null);
         localStorage.removeItem('mcp-active-api-config-name');
         if (mcpClientInstance) {
-            mcpClientInstance.initialize(null); 
+            await mcpClientInstance.initialize(null); 
         }
         setMcpServerStatus({ isRunning: false, error: "No active API configuration." });
         addAuditLogEntry('MCP_ACTIVE_API_CONFIG_CLEARED', 'Active API config cleared.');
@@ -299,7 +375,7 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
       setActiveApiConfigNameInternal(configName);
       localStorage.setItem('mcp-active-api-config-name', configName);
       
-      mcpClientInstance.initialize(newActiveConfig); 
+      await mcpClientInstance.initialize(newActiveConfig); 
       addAuditLogEntry('MCP_ACTIVE_API_CONFIG_SET', `Active API config set to: ${configName}. McpClient re-initialized.`);
       
       setIsMcpClientLoading(true); 
@@ -343,39 +419,35 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
   }, [theme]);
   
   useEffect(() => {
-    const savedFiles = localStorage.getItem('app-files');
-    if (savedFiles) setFiles(JSON.parse(savedFiles));
-    const savedTags = localStorage.getItem('app-tags');
-    if (savedTags) setTags(JSON.parse(savedTags));
-    const savedChat = localStorage.getItem('app-chat');
-    if (savedChat) setChatHistory(JSON.parse(savedChat));
-    const savedAudit = localStorage.getItem('app-audit');
-    if (savedAudit) setAuditLog(JSON.parse(savedAudit));
-    const savedWcatCases = localStorage.getItem('app-wcatCases');
-    if (savedWcatCases) setWcatCases(JSON.parse(savedWcatCases));
-    const savedPolicyManuals = localStorage.getItem('app-policyManuals'); 
-    if (savedPolicyManuals) setPolicyManuals(JSON.parse(savedPolicyManuals));
+    const loadFromLocalStorage = (key: string, setter: Function, itemName: string) => {
+        const savedData = localStorage.getItem(key);
+        if (savedData) {
+            try {
+                setter(JSON.parse(savedData));
+            } catch (e: any) {
+                console.error(`AppContext.tsx: Error parsing ${itemName} from localStorage:`, e.message);
+                addAuditLogEntry('LOCALSTORAGE_PARSE_ERROR', `Error parsing ${itemName}: ${e.message}. Data might be lost or reset.`);
+            }
+        }
+    };
+
+    loadFromLocalStorage('app-files', setFiles, 'files');
+    loadFromLocalStorage('app-tags', setTags, 'tags');
+    loadFromLocalStorage('app-chat', setChatHistory, 'chat history');
+    loadFromLocalStorage('app-audit', setAuditLog, 'audit log');
+    loadFromLocalStorage('app-wcatCases', setWcatCases, 'WCAT cases');
+    loadFromLocalStorage('app-policyManuals', setPolicyManuals, 'policy manuals');
+    loadFromLocalStorage('app-chat-sessions', setSavedChatSessions, 'saved chat sessions');
+    loadFromLocalStorage('app-selected-tool-ids', setSelectedToolIdsForContext, 'selected tool IDs');
+    loadFromLocalStorage('app-selected-file-ids', setSelectedFileIdsForContext, 'selected file IDs');
+    loadFromLocalStorage('app-selected-wcat-ids', setSelectedWcatCaseIdsForContext, 'selected WCAT IDs');
+    loadFromLocalStorage('app-dynamic-markers', setDynamicMarkersInternal, 'dynamic markers');
+
     const storedSidebarState = localStorage.getItem('main-sidebar-collapsed');
     if (storedSidebarState) {
-        setIsMainSidebarCollapsed(JSON.parse(storedSidebarState));
+        try { setIsMainSidebarCollapsed(JSON.parse(storedSidebarState)); } catch (e: any) { console.error("AppContext.tsx: Error parsing sidebar state from localStorage:", e.message); }
     }
-    const storedChatSessions = localStorage.getItem('app-chat-sessions');
-    if (storedChatSessions) setSavedChatSessions(JSON.parse(storedChatSessions));
-    const storedTools = localStorage.getItem('app-tools'); 
-    if (storedTools) {
-        const loadedTools: AiTool[] = JSON.parse(storedTools);
-        // Defer setting tools from mcp.json until after initial McpClient setup to avoid race conditions
-        // setTools(loadedTools); 
-    }
-     const storedSelectedToolIds = localStorage.getItem('app-selected-tool-ids');
-     if (storedSelectedToolIds) setSelectedToolIdsForContext(JSON.parse(storedSelectedToolIds));
-     const storedSelectedFileIds = localStorage.getItem('app-selected-file-ids');
-     if (storedSelectedFileIds) setSelectedFileIdsForContext(JSON.parse(storedSelectedFileIds));
-     const storedSelectedWcatIds = localStorage.getItem('app-selected-wcat-ids');
-     if (storedSelectedWcatIds) setSelectedWcatCaseIdsForContext(JSON.parse(storedSelectedWcatIds));
-
-
-  }, []);
+  }, [addAuditLogEntry, localSetError]); // Added addAuditLogEntry and localSetError as they are dependencies
 
   useEffect(() => { localStorage.setItem('app-files', JSON.stringify(files)); }, [files]);
   useEffect(() => { localStorage.setItem('app-tags', JSON.stringify(tags)); }, [tags]);
@@ -391,6 +463,7 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
   useEffect(() => { localStorage.setItem('app-selected-tool-ids', JSON.stringify(selectedToolIdsForContext)); }, [selectedToolIdsForContext]);
   useEffect(() => { localStorage.setItem('app-selected-file-ids', JSON.stringify(selectedFileIdsForContext)); }, [selectedFileIdsForContext]);
   useEffect(() => { localStorage.setItem('app-selected-wcat-ids', JSON.stringify(selectedWcatCaseIdsForContext)); }, [selectedWcatCaseIdsForContext]);
+  useEffect(() => { localStorage.setItem('app-dynamic-markers', JSON.stringify(dynamicMarkers)); }, [dynamicMarkers]);
 
 
   const setApiKey = (key: string | null) => {
@@ -400,15 +473,15 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
   useEffect(() => {
     const apiKeyErrorMsg = "Gemini API Key is not set. Please set it in Settings or ensure the API_KEY environment variable was available at startup.";
     if (!apiKey) {
-      if (!currentError || (currentError && currentError.toLowerCase().includes("gemini api key"))) {
+      if (!currentErrorRef.current || (currentErrorRef.current && currentErrorRef.current.includes("Gemini API Key"))) {
         localSetError(apiKeyErrorMsg);
       }
     } else {
-      if (currentError && currentError === apiKeyErrorMsg) {
+      if (currentErrorRef.current && currentErrorRef.current === apiKeyErrorMsg) {
         localSetError(null);
       }
     }
-  }, [apiKey, currentError, localSetError]);
+  }, [apiKey, localSetError]);
 
 
   const toggleTheme = useCallback(() => {
@@ -455,7 +528,7 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
       originalFileNameForMcp: string, 
       contentForMcp: string
     ): Promise<EvidenceFile | null> => {
-    if (!mcpClientInstance || !mcpClientInstance.isReady()) {
+    if (!mcpClientInstance || !mcpClientInstance.ready) {
       localSetError(`MCP Client not ready (${mcpClientInstance?.getInitializationError() || 'unknown reason'}). Cannot add file to server.`);
       addAuditLogEntry('ADD_FILE_ERROR_MCP_UNREADY', `MCP Client not ready for file ${fileData.name}`);
       return null;
@@ -510,7 +583,7 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
     const fileToDelete = files.find(f => f.id === fileId);
     if (!fileToDelete) return;
 
-    if (mcpClientInstance && mcpClientInstance.isReady() && fileToDelete.mcpPath) {
+    if (mcpClientInstance && mcpClientInstance.ready && fileToDelete.mcpPath) {
         const successOnMcp = await mcpClientInstance.deleteFileOrDirectory(fileToDelete.mcpPath);
         if (!successOnMcp) {
             localSetError(`Failed to delete file "${fileToDelete.name}" from MCP path "${fileToDelete.mcpPath}". It will only be removed from the app.`);
@@ -524,6 +597,11 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
     }
 
     setFiles((prevFiles) => prevFiles.filter((f) => f.id !== fileId));
+    setDynamicMarkersInternal(prev => { 
+        const newMarkers = {...prev};
+        delete newMarkers[fileId];
+        return newMarkers;
+    });
     addAuditLogEntry('FILE_DELETED_APP', `File "${fileToDelete.name}" (ID: ${fileId}) deleted from app.`);
   }, [files, mcpClientInstance, addAuditLogEntry, localSetError]);
 
@@ -617,7 +695,7 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
     const caseToDelete = wcatCases.find(c => c.id === caseId);
     if (!caseToDelete) return;
 
-    if (mcpClientInstance && mcpClientInstance.isReady() && caseToDelete.mcpPath) {
+    if (mcpClientInstance && mcpClientInstance.ready && caseToDelete.mcpPath) {
         const successOnMcp = await mcpClientInstance.deleteFileOrDirectory(caseToDelete.mcpPath);
         if (!successOnMcp) {
             localSetError(`Failed to delete WCAT case file "${caseToDelete.decisionNumber}" from MCP path "${caseToDelete.mcpPath}". It will only be removed from the app database.`);
@@ -674,7 +752,7 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
       pdfContentString: string, 
       originalFileName: string
     ): Promise<PolicyManual | null> => {
-    if (!mcpClientInstance || !mcpClientInstance.isReady()) {
+    if (!mcpClientInstance || !mcpClientInstance.ready) {
         localSetError("MCP Client not ready. Cannot add policy manual.");
         addAuditLogEntry('ADD_POLICY_MANUAL_ERROR_MCP_UNREADY', `MCP Client not ready for manual ${manualInfo.manualName}`);
         return null;
@@ -732,7 +810,7 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
     const manualToDelete = policyManuals.find(m => m.id === manualId);
     if (!manualToDelete) return;
 
-    if (mcpClientInstance && mcpClientInstance.isReady() && manualToDelete.mcpPath) {
+    if (mcpClientInstance && mcpClientInstance.ready && manualToDelete.mcpPath) {
         const successOnMcp = await mcpClientInstance.deleteFileOrDirectory(manualToDelete.mcpPath);
         if (!successOnMcp) {
             localSetError(`Failed to delete policy manual "${manualToDelete.manualName}" from MCP. It will only be removed from app.`);
@@ -889,7 +967,12 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
     addAuditLogEntry('AI_WCAT_CONTEXT_TOGGLED', `WCAT Case "${caseName}" context toggled.`);
   }, [wcatCases, addAuditLogEntry]);
 
+  const setDynamicMarkersForFile = useCallback((fileId: string, markers: DynamicMarker[]) => {
+    setDynamicMarkersInternal(prev => ({ ...prev, [fileId]: markers }));
+    addAuditLogEntry('DYNAMIC_MARKERS_SET', `Dynamic markers updated for file ID ${fileId}. Count: ${markers.length}.`);
+  }, [addAuditLogEntry]);
 
+  console.log("AppContext.tsx: AppProvider component function ENDING. Rendering children.");
   return (
     <AppContext.Provider value={{ 
       theme, toggleTheme, 
@@ -910,7 +993,8 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
       userMcpServerDefinitions, mcpApiConfigs, activeApiConfigName, setActiveApiConfig, updateMcpApiConfigs,
       tools, addTool, deleteTool, selectedToolIdsForContext, toggleToolContext,
       selectedFileIdsForContext, toggleFileContext,
-      selectedWcatCaseIdsForContext, toggleWcatCaseContext
+      selectedWcatCaseIdsForContext, toggleWcatCaseContext,
+      dynamicMarkers, setDynamicMarkersForFile
     }}>
       {children}
     </AppContext.Provider>

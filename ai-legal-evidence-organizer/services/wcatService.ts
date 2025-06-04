@@ -109,7 +109,7 @@ export const fetchAndProcessWcatPdf = async (
   addAuditLogEntry('WCAT_PDF_TEXT_EXTRACTED', `Simulated text extraction complete for ${decisionNumber}. Length: ${rawTextContent.length}`);
 
   let mcpPath: string | undefined = undefined;
-  if (mcpClient && mcpClient.isReady()) {
+  if (mcpClient && mcpClient.ready) {
     try {
       // Simulate fetching actual PDF blob and saving it
       const simulatedPdfBlobContent = `SIMULATED_PDF_CONTENT_FOR_${decisionNumber}`; // In reality, this would be ArrayBuffer or Blob

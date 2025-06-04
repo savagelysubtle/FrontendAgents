@@ -13,20 +13,45 @@ import {
 
 let ai: GoogleGenAI | null = null;
 let chatInstance: Chat | null = null;
+let geminiInitializationError: string | null = null;
 
-const initializeAi = () => {
+const initializeAi = (): GoogleGenAI | null => {
+  console.log("geminiService.ts: initializeAi called. Checking process.env.API_KEY:", process.env.API_KEY ? "Exists" : "MISSING or undefined");
+  if (ai) return ai; // Already successfully initialized
+  if (geminiInitializationError) return null; // Already failed initialization
+
   if (!process.env.API_KEY) {
-    console.error("Gemini API Key is not set in process.env.API_KEY");
-    throw new Error("Gemini API Key is not configured.");
+    geminiInitializationError = "Gemini API Key is not configured in process.env.API_KEY.";
+    console.error("geminiService.ts:", geminiInitializationError);
+    return null;
   }
-  if (!ai) {
+  try {
     ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
+    console.log("geminiService.ts: GoogleGenAI client initialized successfully.");
+    return ai;
+  } catch (e: any) {
+    geminiInitializationError = `Failed to initialize GoogleGenAI: ${e.message}`;
+    console.error("geminiService.ts:", geminiInitializationError, e);
+    ai = null;
+    return null;
   }
-  return ai;
 };
 
-export const summarizeEvidenceText = async (text: string): Promise<string> => {
+// Call initializeAi once at a higher level if preferred, or ensure it's called by each exported function.
+// For simplicity and to ensure it's attempted before first use:
+// initializeAi(); // This would log error to console if key is missing, but not throw.
+
+const ensureAiInitialized = (): GoogleGenAI => {
   const currentAi = initializeAi();
+  if (!currentAi) {
+    throw new Error(geminiInitializationError || "Gemini AI client is not initialized. API Key may be missing or invalid.");
+  }
+  return currentAi;
+};
+
+
+export const summarizeEvidenceText = async (text: string): Promise<string> => {
+  const currentAi = ensureAiInitialized();
   const fullPrompt = `${AI_ANALYSIS_PROMPT_PREFIX}${text}\n"""`;
 
   try {
@@ -42,7 +67,7 @@ export const summarizeEvidenceText = async (text: string): Promise<string> => {
 };
 
 export const extractWcatCaseInfoFromText = async (pdfText: string, decisionNumber: string): Promise<WcatCaseInfoExtracted> => {
-  const currentAi = initializeAi();
+  const currentAi = ensureAiInitialized();
   const prompt = AI_WCAT_CASE_EXTRACTION_PROMPT(decisionNumber) + pdfText + '\n"""';
   
   try {
@@ -75,15 +100,19 @@ export const extractWcatCaseInfoFromText = async (pdfText: string, decisionNumbe
 };
 
 
-const initializeChat = () => {
-  const currentAi = initializeAi();
+const initializeChatInternal = (): Chat => {
+  const currentAi = ensureAiInitialized();
+  // Re-create chatInstance if it's null or if system instruction needs to be re-applied.
+  // For simplicity, this basic chat does not handle history persistence within geminiService itself,
+  // but relies on the calling agent (AgUiAgentService) to manage history.
+  // If chatInstance exists, we assume it's usable. A more robust solution might check its state.
   if (!chatInstance) {
-    chatInstance = currentAi.chats.create({
-      model: GEMINI_TEXT_MODEL,
-      config: {
-        systemInstruction: AI_CHAT_SYSTEM_INSTRUCTION,
-      },
-    });
+      chatInstance = currentAi.chats.create({
+        model: GEMINI_TEXT_MODEL,
+        config: {
+          systemInstruction: AI_CHAT_SYSTEM_INSTRUCTION,
+        },
+      });
   }
   return chatInstance;
 };
@@ -135,11 +164,13 @@ export const getChatResponse = async (
   relevantWcatCases?: WcatCase[],
   relevantTools?: AiTool[] // Added AiTool[]
 ): Promise<{text: string, groundingSources?: Array<{uri:string, title: string}>}> => {
-  const chat = initializeChat();
+  const chat = initializeChatInternal();
   const fullPrompt = prepareChatPrompt(userQuery, relevantFiles, relevantWcatCases, relevantTools);
 
   try {
     // For non-streaming, sendMessage returns GenerateContentResponse directly
+    // The 'history' parameter is not directly used here because this chatInstance maintains its own history.
+    // If a fresh chat with history is needed each time, initializeChatInternal would need to accept history.
     const response: GenerateContentResponse = await chat.sendMessage({ message: fullPrompt });
     
     const groundingMetadata = response.candidates?.[0]?.groundingMetadata;
@@ -160,7 +191,7 @@ export const getChatResponseStream = async (
   relevantWcatCases?: WcatCase[],
   relevantTools?: AiTool[] // Added AiTool[]
 ): Promise<AsyncIterable<GenerateContentResponse>> => { // Corrected return type
-  const chat = initializeChat();
+  const chat = initializeChatInternal();
   const fullPrompt = prepareChatPrompt(userQuery, relevantFiles, relevantWcatCases, relevantTools);
 
   try {
@@ -176,12 +207,14 @@ export const getChatResponseStream = async (
 
 
 export const resetChatSession = () => {
+  // This function is called by AgUiAgentService to effectively reset the context for a new run.
+  // It ensures that the next call to initializeChatInternal() will create a new chat instance.
   chatInstance = null; 
-  console.log("Chat session has been reset.");
+  console.log("geminiService.ts: Gemini chat session instance has been reset for the next interaction.");
 };
 
 export const getGroundedResponse = async (query: string): Promise<{text: string, sources: Array<{uri:string, title: string}>}> => {
-  const currentAi = initializeAi();
+  const currentAi = ensureAiInitialized();
   try {
     const response: GenerateContentResponse = await currentAi.models.generateContent({
       model: GEMINI_TEXT_MODEL,
@@ -208,20 +241,25 @@ export const getGroundedResponse = async (query: string): Promise<{text: string,
 
 export const testApiKey = async (): Promise<boolean> => {
   try {
-    const currentAi = initializeAi();
-    await currentAi.models.generateContent({
+    // Attempt to initialize AI, which will use the (polyfilled) process.env.API_KEY
+    const currentAi = initializeAi(); // Use the version that doesn't throw immediately
+    if (!currentAi) {
+      console.error("geminiService.ts: API Key test failed:", geminiInitializationError || "AI client could not be initialized.");
+      return false;
+    }
+    await currentAi.models.generateContent({ // This call will throw if the key is truly invalid
       model: GEMINI_TEXT_MODEL,
       contents: "test",
     });
     return true;
   } catch (error) {
-    console.error("API Key test failed:", error);
+    console.error("geminiService.ts: API Key test failed during generateContent call:", error);
     return false;
   }
 };
 
 export const expandWcatSearchQuery = async (userQuery: string): Promise<string> => {
-  const currentAi = initializeAi();
+  const currentAi = ensureAiInitialized();
   const prompt = AI_WCAT_QUERY_EXPANSION_PROMPT(userQuery);
   try {
     const response: GenerateContentResponse = await currentAi.models.generateContent({
@@ -236,7 +274,7 @@ export const expandWcatSearchQuery = async (userQuery: string): Promise<string> 
 };
 
 export const identifyWcatCasePatterns = async (caseText: string): Promise<string[]> => {
-  const currentAi = initializeAi();
+  const currentAi = ensureAiInitialized();
   const prompt = AI_WCAT_PATTERN_IDENTIFICATION_PROMPT(caseText);
   try {
     const response: GenerateContentResponse = await currentAi.models.generateContent({
@@ -268,7 +306,7 @@ export const identifyWcatCasePatterns = async (caseText: string): Promise<string
 };
 
 export const extractPolicyEntriesFromManualText = async (manualText: string, manualName: string): Promise<PolicyEntry[]> => {
-  const currentAi = initializeAi();
+  const currentAi = ensureAiInitialized();
   const prompt = AI_POLICY_MANUAL_INDEXING_PROMPT(manualName) + manualText + '\n"""';
   
   try {

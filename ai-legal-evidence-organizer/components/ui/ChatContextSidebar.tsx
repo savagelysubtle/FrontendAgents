@@ -1,4 +1,3 @@
-
 import React, { useState } from 'react';
 import { EvidenceFile, WcatCase, SavedChatSession, AiTool } from '../../types';
 import { useAppContext } from '../../contexts/AppContext'; 
@@ -10,9 +9,9 @@ interface ChatContextSidebarProps {
   files: EvidenceFile[];
   wcatCases: WcatCase[];
   selectedFileIds: string[];
-  onToggleFileContext: (fileId: string, forceAdd?: boolean) => void;
+  onToggleFileContext: (fileId: string) => void; // Removed forceAdd
   selectedWcatCaseIds: string[];
-  onToggleWcatCaseContext: (caseId: string, forceAdd?: boolean) => void;
+  onToggleWcatCaseContext: (caseId: string) => void; // Removed forceAdd
   onLoadSession: (sessionId: string) => void; 
   
   tools: AiTool[]; // Added for tools tab

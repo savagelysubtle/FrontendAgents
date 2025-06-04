@@ -95,7 +95,7 @@ const FileIngestionPage: React.FC = () => {
       setAppError("Gemini API Key is not set. Please configure it in Settings.");
       return;
     }
-    if (isMcpClientLoading || !mcpClient || !mcpClient.isReady()) {
+    if (isMcpClientLoading || !mcpClient || !mcpClient.ready) {
       setAppError(`MCP Client is not ready. Status: ${isMcpClientLoading ? 'Loading config...' : (mcpClient?.getInitializationError() || 'Unknown error')}. Please wait or check MCP server connection in Settings.`);
       return;
     }
@@ -181,7 +181,7 @@ const FileIngestionPage: React.FC = () => {
   };
   
   const handleSaveReviewModal = async () => {
-    if (!currentItemForReview || !currentItemForReview.appFileId || !mcpClient || !mcpClient.isReady()) {
+    if (!currentItemForReview || !currentItemForReview.appFileId || !mcpClient || !mcpClient.ready) {
         setAppError("Cannot save review: Item or MCP Client not available.");
         return;
     }
@@ -294,7 +294,7 @@ const FileIngestionPage: React.FC = () => {
         )}
       </div>
 
-      { (isMcpClientLoading || (mcpClient && !mcpClient.isReady())) && (
+      { (isMcpClientLoading || (mcpClient && !mcpClient.ready)) && (
         <div className="p-4 bg-yellow-100 dark:bg-yellow-900 border border-yellow-500 text-yellow-700 dark:text-yellow-300 rounded-md">
           MCP Client Status: {isMcpClientLoading ? 'Initializing...' : (mcpClient?.getInitializationError() || 'Not ready.')} File operations via MCP may fail.
         </div>
@@ -331,10 +331,10 @@ const FileIngestionPage: React.FC = () => {
           )}
           <button
             onClick={handleStartBatchProcessing}
-            disabled={selectedFiles.length === 0 || (!mcpClient?.isReady() && !isMcpClientLoading) }
+            disabled={selectedFiles.length === 0 || (!mcpClient?.ready && !isMcpClientLoading) }
             className="w-full bg-primary text-white px-4 py-2 rounded-lg hover:bg-primary-dark transition-colors disabled:opacity-50"
           >
-            { !mcpClient?.isReady() && !isMcpClientLoading ? 'MCP Client Not Ready' : `Start Batch Processing (${selectedFiles.length} files)`}
+            { !mcpClient?.ready && !isMcpClientLoading ? 'MCP Client Not Ready' : `Start Batch Processing (${selectedFiles.length} files)`}
           </button>
         </div>
       )}
@@ -402,8 +402,8 @@ const FileIngestionPage: React.FC = () => {
             footer={
                 <div className="flex justify-end gap-2">
                     <button onClick={() => setIsReviewModalOpen(false)} className="px-4 py-2 border border-border rounded-md text-textPrimary hover:bg-gray-100 dark:hover:bg-gray-700">Cancel</button>
-                    <button onClick={handleSaveReviewModal} className="px-4 py-2 bg-primary text-white rounded-md hover:bg-primary-dark" disabled={!mcpClient?.isReady()}>
-                        { !mcpClient?.isReady() ? 'MCP Not Ready' : 'Save Changes'}
+                    <button onClick={handleSaveReviewModal} className="px-4 py-2 bg-primary text-white rounded-md hover:bg-primary-dark" disabled={!mcpClient?.ready}>
+                        { !mcpClient?.ready ? 'MCP Not Ready' : 'Save Changes'}
                     </button>
                 </div>
             }
